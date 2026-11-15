@@ -9,3 +9,5 @@ __pycache__/
 *.cact
 .boss/runs/
 .env
+
+web/node_modules/
