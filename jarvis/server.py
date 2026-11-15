@@ -1,4 +1,4 @@
-"""Lightweight local REST & UI server connecting the modern DeepSeek React frontend to the JARVIS engine."""
+"""Lightweight local REST & UI server connecting the modern Whistle React frontend to the transcription engine."""
 
 import http.server
 import json
@@ -143,7 +143,7 @@ class JarvisAPIHandler(http.server.SimpleHTTPRequestHandler):
 def launch_server():
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("127.0.0.1", PORT), JarvisAPIHandler) as httpd:
-        print(f"JARVIS Desktop Server listening on http://127.0.0.1:{PORT}")
+        print(f"Whistle Desktop Server listening on http://127.0.0.1:{PORT}")
         httpd.serve_forever()
 
 

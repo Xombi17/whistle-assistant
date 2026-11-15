@@ -1,53 +1,120 @@
-# JARVIS (Whistle Assistant)
+# Whistle Assistant 🎙️
 
-A privacy-first, fully offline voice assistant and WhisperFlow dictation alternative for Ubuntu Linux (Wayland/X11), powered by local models via [Cactus Compute](https://cactus.compute).
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-brightgreen.svg)](pyproject.toml)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux%20(Wayland%20%26%20X11)-orange.svg)](docs/ARCHITECTURE.md)
+[![Tests: Passing](https://img.shields.io/badge/Tests-Passing-success.svg)](tests/)
 
-## Modes: Dictation (WhisperFlow) vs Command (JARVIS)
+An ultra-low latency, privacy-first voice dictation assistant and WhisperFlow alternative tailored for Linux (Ubuntu, Fedora, Arch on Wayland/X11).
 
-The assistant features dual operating modes with instant switching:
+Built for software engineers, developers, and bilingual speakers with **phonetic technical auto-correction** and **native Latin-script Hinglish preservation**.
 
-### 1. WhisperFlow Dictation Mode (`transcribe`)
-- Captures audio and transcribes speech locally using Whistle (`whistle.cact`).
-- Injects typed text directly into your currently focused window via `wtype` (Wayland).
-- Backs up transcripts straight to the system clipboard via `wl-copy`.
+---
 
-### 2. JARVIS Command Assistant Mode (`command`)
-- Transcribes your command.
-- Passes intent to Needle 3 (`needle3.cact`) for structured tool proposal.
-- Enforces strict schema and safety validation.
-- Presents an interactive confirmation dialog with `Enter` to execute (e.g. launching verified desktop applications via `gio launch`).
+## ⚡ Features
 
-## How to Switch Modes
+- 🏎️ **Ultra-Low Latency ASR**: Tier 1 Groq Whisper-large-v3-turbo with initial prompt biasing for instantaneous, highly accurate transcripts; Tier 2 local offline Cactus Whistle engine.
+- 🛠️ **Phonetic Tech Auto-Correction**: Intelligently fixes acoustic mishearings in developer jargon (`"crawl configuration"` $\rightarrow$ `"Groq configuration"`, `"pipe wire"` $\rightarrow$ `"PipeWire"`, `"way land"` $\rightarrow$ `"Wayland"`).
+- 🇮🇳 **Native Hinglish Support**: First-class handling of Hindi written in the English alphabet (e.g. *"theek hai bhai, Groq configuration add kar diya hai"*). Never translates Hindi words into English or transliterates into Devanagari script.
+- 🪶 **Minimalist Glassmorphic UI**: High-contrast, borderless desktop interface built with Inter typography, clean sidebar history, and ambient depth.
+- 🪄 **Floating Spring HUD**: A compact $360\times 52\text{ px}$ floating pill that springs up organically when holding your dictation hotkey and glides away on release.
+- ⌨️ **Native Wayland & X11 Typing**: Injects finalized text directly into the focused application via `wtype` and synchronizes to your system clipboard (`wl-copy`).
+- 🔒 **Privacy-First & Self-Contained**: Local SQLite history cache and full fallback support for offline local inference and local Ollama models.
 
-- **In the Overlay**: Click the **⇄ Switch (Tab)** button on the top-right of the HUD or press `Tab` / `M` while it's open.
-- **Global Toggle**: Run `python3 jarvis/hotkey.py --toggle` (bind to a keyboard shortcut like `Super+Shift+Space`) to flip between modes with desktop notifications.
-- **Direct Mode Hotkeys**:
-  - Dictation: `python3 jarvis/hotkey.py --mode transcribe` (bind to `Super+D`)
-  - Command: `python3 jarvis/hotkey.py --mode command` (bind to `Super+J`)
-- **Check Status**: `python3 jarvis/hotkey.py --status`
+---
 
-## Setup & Prerequisites
+## 🚀 Quick Start
+
+### 1. One-Command Installation (Ubuntu / Debian)
+
+Clone the repository and run the automated installer:
 
 ```bash
-sudo apt install python3 python3-venv python3-tk alsa-utils espeak-ng libglib2.0-bin xdg-utils wl-clipboard wtype
-python3 -m venv .venv
+git clone https://github.com/Xombi17/whistle-assistant.git
+cd whistle-assistant
+chmod +x install.sh
+./install.sh
+```
+
+The installer verifies system utilities (`alsa-utils`, `wl-clipboard`, `wtype`), provisions the Python virtual environment, installs the package, registers the custom squircle desktop icons, and configures the GNOME application launcher.
+
+### 2. Configure Your API Key (Optional for Cloud Speed)
+
+Copy the sample environment file or configure via the desktop UI:
+
+```bash
+cp .env.example .env
+# Edit .env and supply your GROQ_API_KEY
+```
+
+---
+
+## 🖥️ Usage
+
+### Launch Desktop Interface
+Launch via your desktop application menu by pressing `Super` and searching for **Whistle**, or run:
+```bash
+./launch.sh
+# Or using the package CLI entry point:
+whistle
+```
+
+### Launch Voice Dictation HUD
+Trigger the floating voice dictation HUD:
+```bash
+whistle-hud
+```
+
+Bind `whistle-hud` to a global keyboard shortcut (e.g. `Super+Shift+J` or `F8`) in your desktop settings. Hold the key to speak, release to instantly inject the polished text into your active window.
+
+---
+
+## 🏗️ Architecture
+
+```
+Microphone (PipeWire / ALSA)
+        │
+        ▼
+Speech Recognition (Groq Whisper-turbo / Local Cactus Whistle)
+        │ (Raw transcript with keyword bias)
+        ▼
+WhisperFlow Normalization Pipeline (LLM / Phonetic Tech Rules / Hinglish Engine)
+        │ (Polished punctuation & capitalization)
+        ▼
+Window Injection (Wayland wtype) + Clipboard (wl-copy) + Local SQLite History
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for deep technical details.
+
+---
+
+## ⚙️ Configuration & Customization
+
+Whistle supports Groq Cloud, local Ollama, xAI (Grok), and local deterministic rules.
+
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for full configuration parameters, environment variables, and window manager integration (GNOME, Sway, Hyprland).
+
+---
+
+## 🧪 Testing
+
+Run the automated test suite using `pytest`:
+
+```bash
 source .venv/bin/activate
-pip install -r requirements.txt
+pytest tests/ -v
 ```
 
-Download local model weights:
-```bash
-env CACTUS_TELEMETRY=0 cactus fetch
-env CACTUS_TELEMETRY=0 cactus download needle3
-env CACTUS_TELEMETRY=0 cactus download whistle
-```
+All 13 tests verify phonetic tech repair, self-corrections, spoken punctuation cues, Hinglish normalization, config persistence, and SQLite history operations.
 
-## Running
+---
 
-```bash
-python3 jarvis/hotkey.py
-```
+## 🤝 Contributing
 
-## License
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on adding vocabulary rules, running tests, and opening pull requests.
 
-MIT
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).

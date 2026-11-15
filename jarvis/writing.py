@@ -21,9 +21,7 @@ _PROTECTED_RE = re.compile(
 _FILLER_RE = re.compile(r"(?<!\w)(?:um|uh|er|hmm|you\s+know)(?!\w)[,;:]?\s*", re.I)
 
 _SELF_CORRECTION_RE = re.compile(
-    r"(?P<prefix>.*\s)?(?P<old>[\w']+)\s*,\s*"
-    r"(?:no|i\s+mean)\s*,?\s*"
-    r"(?P<new>[\w']+)(?=\s*[,.!?;:]|\s*$)",
+    r"\b(?P<old>[\w']+)\s*,\s*(?:no|i\s+mean|nahi)\s*,?\s*(?P<new>[\w']+)\b",
     re.I,
 )
 
@@ -111,7 +109,7 @@ def remove_fillers(text: str) -> str:
 def apply_self_corrections(text: str) -> str:
     """Fixes mid-sentence spoken verbal corrections ('Monday, no, Tuesday')."""
     return _SELF_CORRECTION_RE.sub(
-        lambda m: f"{m.group('prefix') or ''}{m.group('new')}",
+        lambda m: m.group("new"),
         text,
     )
 
