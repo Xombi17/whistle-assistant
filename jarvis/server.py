@@ -151,7 +151,14 @@ def open_desktop_window():
     """Opens the application in dedicated, borderless Chrome app window mode."""
     url = f"http://127.0.0.1:{PORT}"
     # Prefer Chrome app mode for a sleek desktop application experience
-    chrome_cmd = ["google-chrome", f"--app={url}", "--class=JarvisApp", "--name=JARVIS"]
+    chrome_cmd = [
+        "google-chrome",
+        f"--app={url}",
+        "--class=WhistleApp",
+        "--name=Whistle",
+        "--force-dark-mode",
+        "--enable-features=WebUIDarkMode",
+    ]
     try:
         subprocess.Popen(chrome_cmd)
     except Exception:

@@ -41,18 +41,15 @@ TOOL_SCHEMAS = [
     }
 ]
 
-# DeepSeek Hardware Design Tokens
-C_CHASSIS = "#070a12"        # Deep Obsidian
-C_PANEL = "#0e1320"          # Compute Module Panel
-C_BORDER = "#1b253b"         # Laser-cut hairline
-C_CYAN_ACCENT = "#00d2ff"    # DeepSeek Electric Cyan
-C_COBALT = "#3b82f6"         # Primary Cobalt Blue
-C_EMERALD = "#10b981"        # System Status Green
-C_ROSE = "#f43f5e"           # Record / Alert Red
-C_TEXT_MAIN = "#f1f5f9"      # High contrast readout
-C_TEXT_MUTED = "#64748b"     # Telemetry gray
-C_TEXT_SUB = "#94a3b8"       # Secondary text
-C_KEYCAP_BG = "#161f33"      # Tactile keycap background
+# Modern Minimalist Design Tokens (Whistle)
+C_CHASSIS = "#0e1015"
+C_PANEL = "#131620"
+C_BORDER = "#232a3b"
+C_BLUE = "#3b82f6"
+C_ROSE = "#ef4444"
+C_EMERALD = "#10b981"
+C_TEXT_MAIN = "#f1f5f9"
+C_TEXT_MUTED = "#94a3b8"
 
 
 def get_stored_mode():
@@ -164,22 +161,23 @@ def get_pressed_key_codes():
     return pressed
 
 
-class DeepSeekVoiceHUD:
+class WhistleVoiceHUD:
     def __init__(self, root: tk.Tk, mode: str = "transcribe"):
         self.root = root
         self.mode = mode
-        self.root.title("DEEPSEEK // JARVIS")
+        self.root.title("Whistle")
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         self.root.configure(bg=C_CHASSIS)
 
-        self.width = 520
-        self.height = 175
-        self.root.geometry(f"{self.width}x{self.height}")
+        self.width = 360
+        self.height = 52
+        self.target_x = (root.winfo_screenwidth() - self.width) // 2
+        self.target_y = root.winfo_screenheight() - 110
+        self.current_y = self.target_y + 35
+
+        self.root.geometry(f"{self.width}x{self.height}+{self.target_x}+{self.current_y}")
         self.root.update_idletasks()
-        x = (root.winfo_screenwidth() - self.width) // 2
-        y = root.winfo_screenheight() - 235
-        root.geometry(f"+{x}+{y}")
 
         self.canvas = tk.Canvas(root, width=self.width, height=self.height, bg=C_CHASSIS, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
@@ -195,15 +193,28 @@ class DeepSeekVoiceHUD:
         self.phase = "listening"
         self.tick = 0
         self.current_rms = 0.0
-        self.peak_levels = [0.0] * 32
         self.result_queue = queue.Queue()
         self.stop_recording_event = threading.Event()
         self.pending_command = None
         self.is_destroyed = False
 
-        self.draw_hardware_chassis()
-        self.root.after(35, self.animate_spectrum)
+        self.draw_pill()
+        self.animate_entrance()
+        self.root.after(30, self.animate_spectrum)
         self.root.after(60, self.check_result)
+
+    def animate_entrance(self):
+        """Smooth spring-up entry animation from bottom."""
+        if self.is_destroyed:
+            return
+        if self.current_y > self.target_y:
+            step = max(2, (self.current_y - self.target_y) // 2)
+            self.current_y -= step
+            self.root.geometry(f"+{self.target_x}+{self.current_y}")
+            self.root.after(16, self.animate_entrance)
+        else:
+            self.current_y = self.target_y
+            self.root.geometry(f"+{self.target_x}+{self.target_y}")
 
     def safe_destroy(self):
         if not self.is_destroyed:
@@ -213,61 +224,36 @@ class DeepSeekVoiceHUD:
             except Exception:
                 pass
 
-    def draw_hardware_chassis(self):
+    def draw_pill(self):
         self.canvas.delete("all")
         is_transcribe = (self.mode == "transcribe")
 
-        # 1. Outer Chassis Frame with laser-cut chamfer corners
+        # 1. Clean Pill Capsule Container
         self.canvas.create_rectangle(1, 1, self.width - 2, self.height - 2, fill=C_PANEL, outline=C_BORDER, width=1)
-        # Laser-cut accent corner brackets
-        accent_col = C_CYAN_ACCENT if is_transcribe else "#c084fc"
-        self.canvas.create_line(1, 14, 1, 1, 14, 1, fill=accent_col, width=2)
-        self.canvas.create_line(self.width - 15, 1, self.width - 2, 1, self.width - 2, 14, fill=accent_col, width=2)
-        self.canvas.create_line(1, self.height - 15, 1, self.height - 2, 14, self.height - 2, fill=accent_col, width=2)
-        self.canvas.create_line(self.width - 15, self.height - 2, self.width - 2, self.height - 2, self.width - 2, self.height - 15, fill=accent_col, width=2)
 
-        # 2. Header Telemetry Bar
-        self.led_indicator = self.canvas.create_oval(18, 16, 26, 24, fill=C_ROSE if self.phase == "listening" else C_CYAN_ACCENT, outline="")
-        self.canvas.create_text(34, 20, text="DEEPSEEK // VOICE CORE", anchor="w", fill=C_TEXT_MAIN, font=("Monospace", 9, "bold"))
-        self.canvas.create_text(220, 20, text="16kHz · RAW PCM", anchor="w", fill=C_TEXT_MUTED, font=("Monospace", 8))
+        # 2. Recording Status LED
+        self.led_indicator = self.canvas.create_oval(18, 21, 28, 31, fill=C_ROSE, outline="")
 
-        # Mode Badge / Tactile Switch (Top Right)
-        mode_str = "DICTATION [TAB]" if is_transcribe else "COMMAND [TAB]"
-        btn_tag = "mode_switch"
-        self.canvas.create_rectangle(self.width - 146, 11, self.width - 16, 30, fill=C_KEYCAP_BG, outline=C_BORDER, tags=btn_tag)
-        self.canvas.create_text(self.width - 81, 20, text=f"⇄ {mode_str}", fill=accent_col, font=("Monospace", 8, "bold"), tags=btn_tag)
-        self.canvas.tag_bind(btn_tag, "<Button-1>", lambda e: self.toggle_mode_live())
+        # 3. Status text
+        status_text = "Listening..." if self.phase == "listening" else "Formatting..."
+        self.status = self.canvas.create_text(38, 26, text=status_text, anchor="w", fill=C_TEXT_MAIN, font=("Sans", 10, "bold"))
 
-        # Hairline separator
-        self.canvas.create_line(16, 36, self.width - 16, 36, fill=C_BORDER, width=1)
-
-        # 3. Primary Status & Text Console
-        initial_status = "RECORDING // SPEAK NOW (HOLD HOTKEY)" if self.phase == "listening" else "PROCESSING..."
-        self.status = self.canvas.create_text(18, 56, text=initial_status, anchor="w", fill=C_TEXT_MAIN, font=("Monospace", 10, "bold"))
-
-        # 4. Digital Spectrum Analyzer VU-Meter (32 Hardware Bars)
+        # 4. Voice Wave Bars (Centered vertically)
         self.bars = []
-        bar_count = 32
-        start_x = 18
-        bar_spacing = (self.width - 36) / bar_count
-        base_y = 132
+        bar_count = 8
+        start_x = 180
+        base_y = 26
 
         for i in range(bar_count):
-            x = start_x + i * bar_spacing + 3
-            bar = self.canvas.create_line(x, base_y, x, base_y - 2, fill=C_CYAN_ACCENT if is_transcribe else "#a855f7", width=5, capstyle="projecting")
+            x = start_x + i * 8
+            bar = self.canvas.create_line(x, base_y - 2, x, base_y + 2, fill=C_BLUE, width=3, capstyle="round")
             self.bars.append(bar)
 
-        # dB Scale readout
-        self.db_label = self.canvas.create_text(self.width - 18, 126, text="-48 dBFS", anchor="e", fill=C_TEXT_MUTED, font=("Monospace", 8))
-
-        # 5. Footer Telemetry & Keycaps
-        self.canvas.create_line(16, 144, self.width - 16, 144, fill=C_BORDER, width=1)
-        self.footer = self.canvas.create_text(18, 158, text="RELEASE HOTKEY / RETURN: FINISH  ·  ESC: ABORT", anchor="w", fill=C_TEXT_MUTED, font=("Monospace", 8))
-
-        # Hardware Engine Badge
-        cfg = load_config()
-        provider_name = cfg.get("provider", "GROQ").upper()
-        self.canvas.create_text(self.width - 18, 158, text=f"AI // {provider_name}", anchor="e", fill=C_COBALT, font=("Monospace", 8, "bold"))
+        # 5. Right Mode / Shortcut hint
+        mode_str = "Dictation" if is_transcribe else "Command"
+        btn_tag = "mode_switch"
+        self.canvas.create_text(self.width - 18, 26, text=f"{mode_str} (Tab)", anchor="e", fill=C_TEXT_MUTED, font=("Sans", 9), tags=btn_tag)
+        self.canvas.tag_bind(btn_tag, "<Button-1>", lambda e: self.toggle_mode_live())
 
     def set_status_threadsafe(self, text, phase=None, fill=None):
         def _update():
@@ -275,7 +261,7 @@ class DeepSeekVoiceHUD:
                 return
             if phase:
                 self.phase = phase
-                dot_fill = C_ROSE if phase == "listening" else C_CYAN_ACCENT
+                dot_fill = C_ROSE if phase == "listening" else C_BLUE
                 try:
                     self.canvas.itemconfigure(self.led_indicator, fill=dot_fill)
                 except Exception:
@@ -292,7 +278,7 @@ class DeepSeekVoiceHUD:
     def toggle_mode_live(self):
         self.mode = "command" if self.mode == "transcribe" else "transcribe"
         set_stored_mode(self.mode)
-        self.draw_hardware_chassis()
+        self.draw_pill()
 
     def on_return_pressed(self):
         if self.phase == "listening":
@@ -305,52 +291,38 @@ class DeepSeekVoiceHUD:
             self.stop_recording_event.set()
 
     def on_mouse_released(self, event):
-        if self.phase == "listening" and event.y > 38:
+        if self.phase == "listening":
             self.stop_recording_event.set()
 
     def animate_spectrum(self):
         if self.is_destroyed:
             return
         self.tick += 1
-        is_transcribe = (self.mode == "transcribe")
-        base_color = C_CYAN_ACCENT if is_transcribe else "#c084fc"
-
-        base_y = 132
-        max_height = 54
+        base_y = 26
 
         if self.phase == "listening":
-            # Real RMS volume drives the spectrum analyzer
-            norm_rms = min(1.0, max(0.0, self.current_rms / 2800.0))
-            db_val = max(-60, int(20 * math.log10(norm_rms + 1e-4)))
-            self.canvas.itemconfigure(self.db_label, text=f"{db_val} dBFS")
-
-            # Pulse the LED
-            led_glow = C_ROSE if (self.tick // 6) % 2 == 0 else "#9f1239"
+            norm_rms = min(1.0, max(0.0, self.current_rms / 2500.0))
+            led_glow = C_ROSE if (self.tick // 5) % 2 == 0 else "#991b1b"
             self.canvas.itemconfigure(self.led_indicator, fill=led_glow)
 
             for i, bar in enumerate(self.bars):
-                # Frequency-like distribution curve (center weighted)
-                freq_weight = math.sin((i / len(self.bars)) * math.pi)
-                jitter = (math.sin(self.tick * 0.35 + i * 0.75) + 1.0) * 0.5
-                h = max(2, int((norm_rms * 0.85 + jitter * 0.15) * freq_weight * max_height))
-
-                # Color gradient: Cyan/Blue -> Intense Neon
-                bar_color = base_color if h < 35 else "#38bdf8" if h < 46 else "#ffffff"
-                x = 18 + i * ((self.width - 36) / len(self.bars)) + 3
-                self.canvas.coords(bar, x, base_y, x, base_y - h)
-                self.canvas.itemconfigure(bar, fill=bar_color)
+                freq_weight = math.sin(((i + 1) / (len(self.bars) + 1)) * math.pi)
+                jitter = (math.sin(self.tick * 0.35 + i * 0.8) + 1.0) * 0.5
+                h = max(2, int((norm_rms * 16 + jitter * 6) * freq_weight))
+                x = 180 + i * 8
+                self.canvas.coords(bar, x, base_y - h, x, base_y + h)
+                self.canvas.itemconfigure(bar, fill=C_BLUE if h < 8 else "#60a5fa")
 
         elif self.phase == "processing":
-            self.canvas.itemconfigure(self.led_indicator, fill=C_CYAN_ACCENT)
-            self.canvas.itemconfigure(self.db_label, text="NEURAL // INFERENCE")
+            self.canvas.itemconfigure(self.led_indicator, fill=C_BLUE)
             for i, bar in enumerate(self.bars):
-                wave = abs(math.sin(self.tick * 0.28 + i * 0.42))
-                h = max(3, int(wave * 30))
-                x = 18 + i * ((self.width - 36) / len(self.bars)) + 3
-                self.canvas.coords(bar, x, base_y, x, base_y - h)
-                self.canvas.itemconfigure(bar, fill=C_COBALT)
+                wave = abs(math.sin(self.tick * 0.25 + i * 0.45))
+                h = max(2, int(wave * 12))
+                x = 180 + i * 8
+                self.canvas.coords(bar, x, base_y - h, x, base_y + h)
+                self.canvas.itemconfigure(bar, fill="#818cf8")
 
-        self.root.after(35, self.animate_spectrum)
+        self.root.after(30, self.animate_spectrum)
 
     def check_result(self):
         if self.is_destroyed:
@@ -363,16 +335,16 @@ class DeepSeekVoiceHUD:
 
         if error:
             self.phase = "error"
-            self.canvas.itemconfigure(self.status, text=f"ERROR // {error.upper()}", fill=C_ROSE)
-            self.root.after(2200, self.safe_destroy)
+            self.canvas.itemconfigure(self.status, text="Error", fill=C_ROSE)
+            self.root.after(1800, self.safe_destroy)
             return
 
         if item_type == "transcribe":
             text = payload
             self.phase = "done"
-            display_text = (text[:40] + "…") if len(text) > 42 else text
-            self.canvas.itemconfigure(self.status, text=f'DICTATED: "{display_text}"', fill=C_CYAN_ACCENT)
-            self.canvas.itemconfigure(self.footer, text="INJECTING TEXT TO ACTIVE APPLICATION...", fill=C_EMERALD)
+            display_text = (text[:24] + "…") if len(text) > 26 else text
+            self.canvas.itemconfigure(self.status, text=display_text, fill=C_TEXT_MAIN)
+            self.canvas.itemconfigure(self.led_indicator, fill=C_EMERALD)
 
             def finish_dictation():
                 try:
@@ -380,23 +352,22 @@ class DeepSeekVoiceHUD:
                 except Exception:
                     pass
                 threading.Thread(target=paste_text, args=(text,), daemon=True).start()
-                self.root.after(800, self.safe_destroy)
+                self.root.after(600, self.safe_destroy)
 
-            self.root.after(300, finish_dictation)
+            self.root.after(250, finish_dictation)
 
         elif item_type == "command":
             app_name, desktop_path, transcript = payload
             self.pending_command = (app_name, desktop_path)
             self.phase = "confirm"
-            self.canvas.itemconfigure(self.status, text=f"EXECUTE // LAUNCH {app_name.upper()}?", fill="#c084fc")
-            self.canvas.itemconfigure(self.footer, text="PRESS [ENTER] TO EXECUTE  ·  [ESC] TO ABORT", fill=C_EMERALD)
-            self.root.after(6000, lambda: self.safe_destroy() if self.phase == "confirm" else None)
+            self.canvas.itemconfigure(self.status, text=f"Launch {app_name}?", fill="#a855f7")
+            self.root.after(5000, lambda: self.safe_destroy() if self.phase == "confirm" else None)
 
     def confirm_action(self):
         if self.phase == "confirm" and self.pending_command:
             app_name, desktop_path = self.pending_command
             subprocess.Popen(["gio", "launch", desktop_path])
-            subprocess.run(["notify-send", "JARVIS // EXEC", f"Launched {app_name}"], check=False)
+            subprocess.run(["notify-send", "Whistle", f"Launched {app_name}"], check=False)
             self.safe_destroy()
 
 
@@ -578,7 +549,7 @@ def main():
 
     active_mode = args.mode or get_stored_mode()
     root = tk.Tk()
-    overlay = DeepSeekVoiceHUD(root, mode=active_mode)
+    overlay = WhistleVoiceHUD(root, mode=active_mode)
 
     def handle_sigusr1(signum, frame):
         overlay.stop_recording_event.set()
