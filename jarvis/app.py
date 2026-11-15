@@ -312,9 +312,11 @@ class WhistleWindow(Adw.ApplicationWindow):
 
         nav_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         for key, label in nav_items:
-            btn = Gtk.Button(label=label)
+            btn = Gtk.Button()
             btn.add_css_class("nav-item")
-            btn.set_xalign(0)
+            lbl = Gtk.Label(label=label, xalign=0)
+            lbl.set_hexpand(True)
+            btn.set_child(lbl)
             btn.connect("clicked", lambda b, k=key: self._switch_view(k))
             nav_box.append(btn)
             self.nav_buttons[key] = btn
@@ -377,7 +379,7 @@ class WhistleWindow(Adw.ApplicationWindow):
         # Header bar
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        title = Adw.WindowTitle(title="Dictations", subtitle="Voice transcripts & auto-pastes")
+        title = Adw.WindowTitle(title="Dictations", subtitle="Voice transcripts and auto-pastes")
         header.set_title_widget(title)
 
         # Clear history button
@@ -570,7 +572,7 @@ class WhistleWindow(Adw.ApplicationWindow):
 
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        title = Adw.WindowTitle(title="Dictionary", subtitle="Teach Whistle custom developer words & Hinglish")
+        title = Adw.WindowTitle(title="Dictionary", subtitle="Teach Whistle custom developer words and Hinglish")
         header.set_title_widget(title)
         main.append(header)
 
@@ -681,7 +683,7 @@ class WhistleWindow(Adw.ApplicationWindow):
 
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        title = Adw.WindowTitle(title="Writing Styles", subtitle="Configure formatting tone & structure")
+        title = Adw.WindowTitle(title="Writing Styles", subtitle="Configure formatting tone and structure")
         header.set_title_widget(title)
         main.append(header)
 
@@ -699,8 +701,8 @@ class WhistleWindow(Adw.ApplicationWindow):
         scroll.set_child(clamp)
 
         styles = [
-            ("code", "🛠️  Developer & Technical", "Preserves camelCase, programming flags, CLI commands, and technical acronyms without stripping punctuation.", True),
-            ("pro", "💼  Clean & Professional", "Removes verbal fillers (um, uh, like), corrects grammar, and formats into clean, publication-ready prose.", False),
+            ("code", "🛠️  Developer &amp; Technical", "Preserves camelCase, programming flags, CLI commands, and technical acronyms without stripping punctuation.", True),
+            ("pro", "💼  Clean &amp; Professional", "Removes verbal fillers (um, uh, like), corrects grammar, and formats into clean, publication-ready prose.", False),
             ("hinglish", "💬  Hinglish Natural", "Retains mixed Hindi-English speech in English letters (Latin script) without awkward translations.", False),
             ("bullets", "📝  Structured Bullets", "Transforms spoken trains of thought into concise, organized bullet points.", False),
         ]
@@ -757,7 +759,7 @@ class WhistleWindow(Adw.ApplicationWindow):
 
         header = Adw.HeaderBar()
         header.add_css_class("flat")
-        title = Adw.WindowTitle(title="Settings", subtitle="System shortcuts, audio & AI models")
+        title = Adw.WindowTitle(title="Settings", subtitle="System shortcuts, audio and AI models")
         header.set_title_widget(title)
         main.append(header)
 
@@ -775,12 +777,12 @@ class WhistleWindow(Adw.ApplicationWindow):
         scroll.set_child(clamp)
 
         # Shortcuts
-        sh_group = Adw.PreferencesGroup(title="Global Shortcuts & Dictation")
+        sh_group = Adw.PreferencesGroup(title="Global Shortcuts and Dictation")
         pref_page.add(sh_group)
 
         hotkey_row = Adw.ActionRow(
             title="Global Hotkey",
-            subtitle="<Super><Shift>j — Press and hold to dictate, release to auto-paste"
+            subtitle="Super+Shift+J — Press and hold to dictate, release to auto-paste"
         )
         sh_group.add(hotkey_row)
 
