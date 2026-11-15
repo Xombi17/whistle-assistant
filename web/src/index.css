@@ -1,19 +1,66 @@
+/* Hallmark · shape: Workbench · genre: atmospheric · theme: Ribbon (by request) · job: listen
+ * hero: Stage · nav: edge-aligned · footer: minimal · imagery: live-audio · signature: machined-audio-console · ribbon: two-in-the-morning
+ * axes: dark/grotesk-sans/chromatic-teal · posture: committed · contrast: pass · fold: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P9 H9 E9 S9 R9 V9 · weakest: E, machined physical dials calibrated for acoustic recording */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+  --color-paper: oklch(13.2% 0.022 258);
+  --color-paper-2: oklch(16.4% 0.02 258);
+  --color-paper-3: oklch(20% 0.02 258);
+  --color-ink: oklch(93.5% 0.012 85);
+  --color-ink-2: oklch(80% 0.015 255);
+  --color-muted: oklch(65% 0.02 255);
+  --color-rule: oklch(27% 0.02 258);
+  --color-rule-2: oklch(22% 0.015 258);
+  --color-accent: oklch(75% 0.12 185);
+  --color-accent-soft: oklch(24% 0.04 185);
+  --color-accent-ink: oklch(12% 0.02 258);
+  --color-signal: oklch(82% 0.095 68);
+  --color-focus: oklch(75% 0.12 185);
+  --metal-hi: oklch(44% 0.012 255);
+  --metal-lo: oklch(25% 0.014 255);
+  --edge-light: inset 0 1px 0 oklch(100% 0 0 / 0.09);
+  --edge-light-accent: inset 0 1px 0 oklch(100% 0 0 / 0.25);
+  --shadow-part: 0 1px 0 oklch(0% 0 0 / 0.4), 0 8px 16px -4px oklch(0% 0 0 / 0.5);
+  --shadow-panel: 0 1px 0 oklch(100% 0 0 / 0.06), 0 24px 48px -12px oklch(0% 0 0 / 0.7);
+  --font-display: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --radius-card: 16px;
+  --radius-part: 8px;
+  --radius-pill: 999px;
+  --rule-hair: 1px;
+}
+
 @layer base {
-  body {
-    background-color: #0b0d13;
-    color: #f1f5f9;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  html, body {
+    overflow-x: clip;
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-body);
     letter-spacing: -0.012em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.025em;
+  }
+
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
 }
 
-/* Custom modern scrollbars */
+/* Custom precision scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -22,49 +69,93 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #232938;
+  background: oklch(24% 0.02 258);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #333d52;
+  background: oklch(32% 0.025 258);
 }
 
-/* 3D Glass Surface & Elevation */
-.glass-panel {
-  background: linear-gradient(180deg, rgba(22, 26, 38, 0.75) 0%, rgba(13, 16, 24, 0.85) 100%);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+/* Machined Tactile Panels & Wells */
+.machined-chassis {
+  background: linear-gradient(180deg, oklch(14.5% 0.022 258) 0%, oklch(11.8% 0.022 258) 100%);
+  border: 1px solid var(--color-rule);
+  box-shadow: var(--shadow-panel), var(--edge-light);
 }
 
-.glass-card {
-  background: linear-gradient(180deg, rgba(25, 30, 44, 0.5) 0%, rgba(15, 18, 27, 0.65) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 4px 16px -2px rgba(0, 0, 0, 0.35);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+.machined-well {
+  background: linear-gradient(180deg, oklch(11% 0.022 258) 0%, oklch(13.5% 0.022 258) 100%);
+  border: 1px solid var(--color-rule-2);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6), inset 0 0 1px rgba(0, 0, 0, 0.8);
 }
 
-.glass-card:hover {
-  border-color: rgba(255, 255, 255, 0.12);
+.machined-plate {
+  background: linear-gradient(180deg, oklch(17.5% 0.022 258) 0%, oklch(14% 0.022 258) 100%);
+  border: 1px solid var(--color-rule);
+  box-shadow: var(--shadow-part), var(--edge-light);
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s ease;
+}
+
+.machined-plate:hover {
+  border-color: oklch(35% 0.03 258);
   transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 8px 24px -4px rgba(0, 0, 0, 0.45);
 }
 
-.glass-button {
-  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.25), 0 4px 12px rgba(37, 99, 235, 0.35);
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+/* Tactile Control Buttons */
+.btn-instrument {
+  background: linear-gradient(180deg, oklch(22% 0.025 258) 0%, oklch(17% 0.025 258) 100%);
+  border: 1px solid var(--color-rule);
+  box-shadow: var(--edge-light), 0 2px 4px rgba(0, 0, 0, 0.4);
+  color: var(--color-ink);
+  transition: transform 0.12s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s ease, border-color 0.15s ease;
 }
 
-.glass-button:hover {
-  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.35), 0 6px 16px rgba(37, 99, 235, 0.45);
-  transform: translateY(-0.5px);
+.btn-instrument:hover {
+  background: linear-gradient(180deg, oklch(25% 0.03 258) 0%, oklch(19% 0.03 258) 100%);
+  border-color: oklch(38% 0.04 258);
+  transform: translateY(-1px);
 }
 
-.glass-button:active {
-  transform: translateY(0.5px);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+.btn-instrument:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+.btn-accent {
+  background: linear-gradient(180deg, oklch(75% 0.12 185) 0%, oklch(62% 0.13 185) 100%);
+  border: 1px solid oklch(80% 0.12 185);
+  box-shadow: var(--edge-light-accent), 0 4px 14px oklch(70% 0.12 185 / 0.35);
+  color: oklch(12% 0.02 258);
+  font-weight: 600;
+  transition: transform 0.12s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s ease;
+}
+
+.btn-accent:hover {
+  background: linear-gradient(180deg, oklch(80% 0.13 185) 0%, oklch(66% 0.14 185) 100%);
+  box-shadow: var(--edge-light-accent), 0 6px 18px oklch(75% 0.13 185 / 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-accent:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Subtle background fine measurement grid */
+.studio-grid {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, oklch(20% 0.015 258 / 0.35) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(20% 0.015 258 / 0.35) 1px, transparent 1px);
+}
+
+/* Decibel Meter Tick Marks */
+.meter-ticks {
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(35% 0.02 258),
+    oklch(35% 0.02 258) 1px,
+    transparent 1px,
+    transparent 8px
+  );
 }

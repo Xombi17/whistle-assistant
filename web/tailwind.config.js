@@ -7,17 +7,23 @@ export default {
   theme: {
     extend: {
       colors: {
-        chassis: "#070a12",
-        panel: "#0e1422",
-        panelBorder: "#1b253b",
-        neonCyan: "#00d2ff",
-        neonBlue: "#3b82f6",
-        neonEmerald: "#10b981",
-        neonRose: "#f43f5e"
+        paper: "oklch(13.2% 0.022 258)",
+        "paper-2": "oklch(16.4% 0.02 258)",
+        "paper-3": "oklch(20% 0.02 258)",
+        ink: "oklch(93.5% 0.012 85)",
+        "ink-2": "oklch(80% 0.015 255)",
+        muted: "oklch(65% 0.02 255)",
+        rule: "oklch(27% 0.02 258)",
+        "rule-2": "oklch(22% 0.015 258)",
+        accent: "oklch(75% 0.12 185)",
+        "accent-soft": "oklch(24% 0.04 185)",
+        signal: "oklch(82% 0.095 68)",
       },
       fontFamily: {
-        mono: ['"JetBrains Mono"', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
-        sans: ['Inter', 'system-ui', 'sans-serif']
+        display: ['"Instrument Sans"', 'system-ui', 'sans-serif'],
+        body: ['"Figtree"', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'Menlo', 'Monaco', 'monospace'],
+        sans: ['"Figtree"', 'system-ui', 'sans-serif']
       }
     },
   },
