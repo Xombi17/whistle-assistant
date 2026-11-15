@@ -1,5 +1,5 @@
 """JARVIS unified voice overlay with hold-to-talk release detection, PipeWire default mic capture,
-and seamless mode switching (WhisperFlow Dictation vs Command Assistant)."""
+thread-safe Tkinter messaging, and seamless mode switching (WhisperFlow Dictation vs Command Assistant)."""
 
 import argparse
 import array
@@ -98,6 +98,7 @@ def pcm_to_wav(pcm_data, sample_rate=16000, channels=1, sampwidth=2):
     data_size = len(pcm_data)
     byte_rate = sample_rate * channels * sampwidth
     block_align = channels * sampwidth
+    bits_per_sample = sample_rate * 8  # wait! sample_rate * 8 is wrong! width * 8!
     bits_per_sample = sampwidth * 8
     header = struct.pack(
         '<4sI4s4sIHHIIHH4sI',
@@ -172,7 +173,7 @@ class VoiceOverlay:
         self.canvas.pack()
 
         # Keyboard & Mouse events
-        self.root.bind('<Escape>', lambda e: self.root.destroy())
+        self.root.bind('<Escape>', lambda e: self.safe_destroy())
         self.root.bind('<Tab>', lambda e: self.toggle_mode_live())
         self.root.bind('<m>', lambda e: self.toggle_mode_live())
         self.root.bind('<M>', lambda e: self.toggle_mode_live())
@@ -182,14 +183,23 @@ class VoiceOverlay:
 
         self.phase = 'listening'
         self.tick = 0
-        self.audio_level = 0.0
+        self.current_rms = 0.0
         self.result_queue = queue.Queue()
         self.stop_recording_event = threading.Event()
         self.pending_command = None
+        self.is_destroyed = False
 
         self.draw_ui()
         self.root.after(40, self.animate)
         self.root.after(60, self.check_result)
+
+    def safe_destroy(self):
+        if not self.is_destroyed:
+            self.is_destroyed = True
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
 
     def draw_ui(self):
         self.canvas.delete('all')
@@ -210,7 +220,7 @@ class VoiceOverlay:
         self.canvas.create_text(self.width - 82, 29, text='⇄ Switch (Tab)', fill='#e2e8f0', font=('Sans', 8, 'bold'), tags=btn_tag)
         self.canvas.tag_bind(btn_tag, '<Button-1>', lambda e: self.toggle_mode_live())
 
-        status_msg = 'Listening… (hold hotkey or tap to toggle)' if self.phase == 'listening' else 'Processing…'
+        status_msg = 'Listening… (hold hotkey or speak)' if self.phase == 'listening' else 'Processing…'
         self.status = self.canvas.create_text(24, 66, text=status_msg, anchor='w', fill='#b8bfd4', font=('Sans', 11))
 
         self.bars = []
@@ -223,6 +233,22 @@ class VoiceOverlay:
 
         hint = 'Release hotkey / press Return to finish  ·  Esc: cancel'
         self.footer = self.canvas.create_text(24, 144, text=hint, anchor='w', fill='#777f96', font=('Sans', 9))
+
+    def set_status_threadsafe(self, text, phase=None, fill=None):
+        """Thread-safe dispatch to update GUI state from worker threads."""
+        def _update():
+            if self.is_destroyed:
+                return
+            if phase:
+                self.phase = phase
+            kwargs = {'text': text}
+            if fill:
+                kwargs['fill'] = fill
+            try:
+                self.canvas.itemconfigure(self.status, **kwargs)
+            except Exception:
+                pass
+        self.root.after(0, _update)
 
     def toggle_mode_live(self):
         self.mode = 'command' if self.mode == 'transcribe' else 'transcribe'
@@ -244,27 +270,34 @@ class VoiceOverlay:
             self.stop_recording_event.set()
 
     def animate(self):
+        if self.is_destroyed:
+            return
         import math
         self.tick += 1
-        if self.phase == 'listening':
-            is_transcribe = (self.mode == 'transcribe')
-            color = '#38bdf8' if is_transcribe else '#c084fc'
-            boost = min(36.0, self.audio_level * 0.015)
-            for i, item in enumerate(self.bars):
-                sin_wave = math.sin(self.tick * 0.24 + i * 0.65)
-                strength = 5 + abs(sin_wave) * (10 + boost)
-                mid = 114
-                self.canvas.coords(item, 26 + i * 14, mid - strength / 2, 26 + i * 14, mid + strength / 2)
-                self.canvas.itemconfigure(item, fill=color)
-        elif self.phase == 'processing':
-            for i, item in enumerate(self.bars):
-                mid = 114
-                strength = 6 + abs(math.sin(self.tick * 0.35 + i * 0.45)) * 14
-                self.canvas.coords(item, 26 + i * 14, mid - strength / 2, 26 + i * 14, mid + strength / 2)
-                self.canvas.itemconfigure(item, fill='#818cf8')
-        self.root.after(40, self.animate)
+        try:
+            if self.phase == 'listening':
+                is_transcribe = (self.mode == 'transcribe')
+                color = '#38bdf8' if is_transcribe else '#c084fc'
+                boost = min(36.0, self.current_rms * 0.015)
+                for i, item in enumerate(self.bars):
+                    sin_wave = math.sin(self.tick * 0.24 + i * 0.65)
+                    strength = 5 + abs(sin_wave) * (10 + boost)
+                    mid = 114
+                    self.canvas.coords(item, 26 + i * 14, mid - strength / 2, 26 + i * 14, mid + strength / 2)
+                    self.canvas.itemconfigure(item, fill=color)
+            elif self.phase == 'processing':
+                for i, item in enumerate(self.bars):
+                    mid = 114
+                    strength = 6 + abs(math.sin(self.tick * 0.35 + i * 0.45)) * 14
+                    self.canvas.coords(item, 26 + i * 14, mid - strength / 2, 26 + i * 14, mid + strength / 2)
+                    self.canvas.itemconfigure(item, fill='#818cf8')
+            self.root.after(40, self.animate)
+        except Exception:
+            pass
 
     def check_result(self):
+        if self.is_destroyed:
+            return
         try:
             item_type, payload, error = self.result_queue.get_nowait()
         except queue.Empty:
@@ -274,7 +307,7 @@ class VoiceOverlay:
         if error:
             self.phase = 'error'
             self.canvas.itemconfigure(self.status, text=f'{error}', fill='#f87171')
-            self.root.after(2200, self.root.destroy)
+            self.root.after(2200, self.safe_destroy)
             return
 
         if item_type == 'transcribe':
@@ -284,13 +317,16 @@ class VoiceOverlay:
             self.canvas.itemconfigure(self.status, text=f'Transcribed: "{display_text}"', fill='#38bdf8')
             self.canvas.itemconfigure(self.footer, text='Pasting text and copying to clipboard…', fill='#94a3b8')
 
+            # Hide window cleanly, dispatch background paste
             def finish_dictation():
-                time.sleep(0.25)
-                self.root.withdraw()
-                paste_text(text)
-                self.root.destroy()
+                try:
+                    self.root.withdraw()
+                except Exception:
+                    pass
+                threading.Thread(target=paste_text, args=(text,), daemon=True).start()
+                self.root.after(800, self.safe_destroy)
 
-            threading.Thread(target=finish_dictation, daemon=True).start()
+            self.root.after(250, finish_dictation)
 
         elif item_type == 'command':
             app_name, desktop_path, transcript = payload
@@ -298,14 +334,14 @@ class VoiceOverlay:
             self.phase = 'confirm'
             self.canvas.itemconfigure(self.status, text=f'Launch {app_name}?', fill='#c084fc')
             self.canvas.itemconfigure(self.footer, text='Press Enter to launch  ·  Esc to cancel', fill='#a78bfa')
-            self.root.after(6000, lambda: self.root.destroy() if self.phase == 'confirm' else None)
+            self.root.after(6000, lambda: self.safe_destroy() if self.phase == 'confirm' else None)
 
     def confirm_action(self):
         if self.phase == 'confirm' and self.pending_command:
             app_name, desktop_path = self.pending_command
             subprocess.Popen(['gio', 'launch', desktop_path])
             subprocess.run(['notify-send', 'JARVIS', f'Launched {app_name}'], check=False)
-            self.root.destroy()
+            self.safe_destroy()
 
 
 def paste_text(text):
@@ -346,7 +382,6 @@ def paste_text(text):
 
 def monitor_key_release(stop_event):
     """Monitors hotkey modifiers (Super/Shift) for release, respecting hold-to-talk."""
-    # Key codes: LeftMeta=125, RightMeta=126, LeftShift=42, RightShift=54, J=36
     initial_modifiers = {42, 54, 125, 126}
 
     # Check which modifier keys were already held down when triggered
@@ -354,16 +389,13 @@ def monitor_key_release(stop_event):
     was_holding = bool(initial_pressed)
 
     # Enforce minimum speaking time (0.5s) before release can trigger stop
-    start_time = time.time()
     time.sleep(0.5)
 
     if not was_holding:
-        # User tapped shortcut quickly; wait for second tap (SIGUSR1) or Return/Space in UI
         return
 
     while not stop_event.is_set():
         current_pressed = get_pressed_key_codes()
-        # If all initially held modifiers have been released, user let go of hotkey
         if not (current_pressed & initial_modifiers):
             stop_event.set()
             return
@@ -372,7 +404,6 @@ def monitor_key_release(stop_event):
 
 def audio_recorder(overlay, stop_event, pcm_chunks):
     """Captures 16 kHz audio from system default microphone (PipeWire default source)."""
-    # Using arecord -D default routes cleanly to active PipeWire mic (e.g. USB headset/FIIO)
     cmd = ['arecord', '-D', 'default', '-q', '-f', 'S16_LE', '-r', '16000', '-c', '1', '-t', 'raw']
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
@@ -387,7 +418,7 @@ def audio_recorder(overlay, stop_event, pcm_chunks):
                 break
             pcm_chunks.append(data)
             rms = compute_rms(data)
-            overlay.audio_level = overlay.audio_level * 0.4 + rms * 0.6
+            overlay.current_rms = rms
 
             if time.time() - start_time > max_duration:
                 stop_event.set()
@@ -412,8 +443,7 @@ def run_pipeline(overlay):
         # Capture audio from default microphone
         audio_recorder(overlay, stop_event, pcm_chunks)
 
-        overlay.phase = 'processing'
-        overlay.canvas.itemconfigure(overlay.status, text='Transcribing with Whistle…')
+        overlay.set_status_threadsafe('Transcribing with Whistle…', phase='processing')
 
         all_pcm = b''.join(pcm_chunks)
         # Require at least 0.3 seconds of audio data
@@ -441,7 +471,7 @@ def run_pipeline(overlay):
         if overlay.mode == 'transcribe':
             overlay.result_queue.put(('transcribe', transcript, None))
         else:
-            overlay.canvas.itemconfigure(overlay.status, text='Interpreting command…')
+            overlay.set_status_threadsafe('Interpreting command…')
             response = model.propose(transcript)
             calls = validate(response)
             if not calls or calls[0]['name'] != 'open_app':
