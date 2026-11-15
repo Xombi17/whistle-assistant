@@ -21,7 +21,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from jarvis.model import LocalModels
 from jarvis.validation import validate
-from jarvis.formatter import polish_transcript
+from jarvis.formatter import polish_transcript, load_config
+from jarvis.history import save_history_item
 
 CONFIG_DIR = Path.home() / '.config' / 'jarvis'
 MODE_FILE = CONFIG_DIR / 'mode'
@@ -471,10 +472,14 @@ def run_pipeline(overlay):
 
         if overlay.mode == 'transcribe':
             overlay.set_status_threadsafe('Formatting text…', phase='processing')
+            cfg = load_config()
             polished = polish_transcript(transcript)
-            overlay.result_queue.put(('transcribe', polished or transcript, None))
+            final_text = polished or transcript
+            save_history_item(raw_text=transcript, formatted_text=final_text, mode='transcribe', provider=cfg.get('provider', 'groq'))
+            overlay.result_queue.put(('transcribe', final_text, None))
         else:
             overlay.set_status_threadsafe('Interpreting command…')
+            save_history_item(raw_text=transcript, formatted_text=transcript, mode='command', provider='needle3')
             response = model.propose(transcript)
             calls = validate(response)
             if not calls or calls[0]['name'] != 'open_app':
