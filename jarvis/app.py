@@ -1,21 +1,21 @@
-"""Whistle Assistant — Native Linux Desktop GUI built with GTK4 and Libadwaita.
-Engineered for ultra-fast, privacy-first voice dictation and intelligent WhisperFlow formatting.
+"""Whistle Assistant — Native Linux Desktop Hub modeled after Wispr Flow.
+Ambient, high-fidelity voice dictation, smart technical WhisperFlow formatting,
+custom dictionary, and personal writing styles.
 """
 
+import json
 import math
 import os
-import random
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
 
-# Add project root to path
+# Add project root to sys.path
 REPO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_DIR))
 
-import cairo
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -25,468 +25,773 @@ from jarvis.formatter import load_config, polish_transcript, save_config
 from jarvis.history import clear_all_history, delete_history_item, list_history, save_history_item
 from jarvis.server import get_active_audio_device
 
-CSS_STYLE = b"""
-/* Window & Surface */
-window.whistle-window {
-    background-color: #0c0e14;
-}
+CONFIG_DIR = Path.home() / ".config" / "jarvis"
+DICT_FILE = CONFIG_DIR / "dictionary.json"
 
-.brand-title {
-    font-weight: 800;
-    font-size: 15px;
-    letter-spacing: -0.2px;
-    color: #f8fafc;
-}
+DEFAULT_DICTIONARY = [
+    {"from": "crawl", "to": "Groq"},
+    {"from": "allama", "to": "Ollama"},
+    {"from": "deep sick", "to": "DeepSeek"},
+    {"from": "whisper flow", "to": "WhisperFlow"},
+    {"from": "pipe wire", "to": "PipeWire"},
+    {"from": "wire plumber", "to": "WirePlumber"},
+    {"from": "way land", "to": "Wayland"},
+    {"from": "pie torch", "to": "PyTorch"},
+]
 
-.brand-badge {
-    font-size: 10px;
-    font-weight: 700;
-    padding: 2px 7px;
-    background: rgba(99, 102, 241, 0.15);
-    color: #818cf8;
-    border-radius: 6px;
-    border: 1px solid rgba(99, 102, 241, 0.3);
-}
 
-/* System Pill */
-.status-pill {
-    padding: 5px 12px;
-    border-radius: 9999px;
-    font-size: 12px;
-    font-weight: 600;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-}
-.status-pill.ready {
-    color: #34d399;
-}
-.status-pill.recording {
-    color: #fb7185;
-    background: rgba(244, 63, 94, 0.15);
-    border-color: rgba(244, 63, 94, 0.4);
-}
-.status-pill.processing {
-    color: #38bdf8;
-    background: rgba(56, 189, 248, 0.15);
-    border-color: rgba(56, 189, 248, 0.4);
-}
+def load_dictionary():
+    if DICT_FILE.is_file():
+        try:
+            return json.loads(DICT_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return list(DEFAULT_DICTIONARY)
 
-/* Hardware / Status Bar */
-.hardware-bar {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 14px;
-    padding: 10px 16px;
-}
-.hardware-bar label {
-    font-size: 12px;
-    color: #94a3b8;
-}
 
-/* Hero Studio Card */
-.studio-hero {
-    background: linear-gradient(180deg, rgba(26, 29, 43, 0.75) 0%, rgba(16, 18, 28, 0.95) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 20px;
-    padding: 24px 20px;
-}
-
-.mic-hero-btn {
-    min-width: 76px;
-    min-height: 76px;
-    border-radius: 38px;
-    background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35);
-    border: none;
-    color: white;
-}
-.mic-hero-btn:hover {
-    background: linear-gradient(135deg, #60a5fa 0%, #818cf8 100%);
-    box-shadow: 0 10px 30px rgba(99, 102, 241, 0.55);
-}
-.mic-hero-btn.recording {
-    background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
-    box-shadow: 0 8px 28px rgba(244, 63, 94, 0.55);
-}
-
-/* Tone Mode Chips */
-.tone-chip {
-    padding: 5px 12px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 500;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #cbd5e1;
-}
-.tone-chip:checked {
-    background: rgba(99, 102, 241, 0.2);
-    border-color: #6366f1;
-    color: #c7d2fe;
-}
-
-/* Transcript Canvas */
-.transcript-card {
-    background: rgba(15, 17, 26, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    padding: 4px;
-}
-.transcript-card textview {
-    background: transparent;
-    color: #f1f5f9;
-    font-size: 14px;
-    line-height: 1.6;
-}
-.transcript-header {
-    padding: 8px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-/* History Cards */
-.history-entry {
-    background: rgba(255, 255, 255, 0.025);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 14px;
-    padding: 14px 16px;
-    margin-bottom: 8px;
-}
-.history-entry:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(99, 102, 241, 0.3);
-}
-
-.action-btn-subtle {
-    border-radius: 8px;
-    padding: 6px 12px;
-    font-size: 12px;
-    font-weight: 600;
-}
-"""
+def save_dictionary(words):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    DICT_FILE.write_text(json.dumps(words, indent=2), encoding="utf-8")
 
 
 def clean_mic_name(name: str) -> str:
-    """Shorten verbose Linux ALSA/PipeWire device names into a clean label."""
     if not name:
         return "Default Microphone"
     name = name.split(".")[0].strip()
     if "Core Ultra" in name:
-        return "Core Ultra HD Mic"
+        return "Core Ultra Mic"
     if "Built-in" in name or "Internal" in name:
         return "Internal Mic"
     if "USB" in name:
         return "USB Microphone"
-    if len(name) > 28:
-        return name[:26] + "…"
+    if len(name) > 22:
+        return name[:20] + "…"
     return name
 
 
-class VisualizerArea(Gtk.DrawingArea):
-    """Dynamic animated audio soundwave visualizer."""
-    def __init__(self):
-        super().__init__()
-        self.set_content_height(34)
-        self.set_content_width(260)
-        self.is_active = False
-        self.phase = 0.0
-        self.set_draw_func(self._draw)
+APP_CSS = b"""
+/* Main Hub Architecture */
+window.whistle-hub {
+    background-color: #121316;
+    color: #e4e4e7;
+}
 
-    def set_active(self, active: bool):
-        self.is_active = active
-        self.queue_draw()
+/* Sidebar Styling */
+.hub-sidebar {
+    background-color: #16171b;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 12px;
+}
 
-    def tick(self):
-        if self.is_active:
-            self.phase += 0.25
-            self.queue_draw()
+.brand-label {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    color: #f4f4f5;
+}
 
-    def _draw(self, area, cr: cairo.Context, width: int, height: int):
-        num_bars = 24
-        bar_width = 4.0
-        spacing = (width - (num_bars * bar_width)) / (num_bars - 1)
-        mid_y = height / 2.0
+.brand-version {
+    font-size: 10px;
+    font-weight: 600;
+    color: #a1a1aa;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
 
-        for i in range(num_bars):
-            x = i * (bar_width + spacing)
-            if self.is_active:
-                # Dynamic reactive waves
-                wave = math.sin(self.phase + i * 0.45) * 0.5 + 0.5
-                wave2 = math.cos(self.phase * 0.7 + i * 0.3) * 0.5 + 0.5
-                h = 6 + (wave * 0.6 + wave2 * 0.4) * (height - 10)
-                # Gradient rose/purple while recording
-                cr.set_source_rgba(0.96, 0.25, 0.37, 0.9)
-            else:
-                # Idle subtle bars
-                h = 4.0
-                cr.set_source_rgba(0.3, 0.35, 0.45, 0.4)
+.nav-item {
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 3px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #a1a1aa;
+    transition: all 120ms ease;
+    border: none;
+    background: transparent;
+}
+.nav-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #f4f4f5;
+}
+.nav-item.active {
+    background: rgba(255, 255, 255, 0.09);
+    color: #ffffff;
+    font-weight: 600;
+}
 
-            y = mid_y - (h / 2.0)
-            radius = bar_width / 2.0
+/* Status capsule in sidebar footer */
+.sidebar-footer {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+.sidebar-footer label {
+    font-size: 11px;
+    color: #71717a;
+}
+.sidebar-footer .mic-name {
+    font-weight: 600;
+    color: #d4d4d8;
+}
 
-            # Draw rounded bar
-            cr.new_sub_path()
-            cr.arc(x + radius, y + radius, radius, math.pi, 1.5 * math.pi)
-            cr.arc(x + bar_width - radius, y + radius, radius, 1.5 * math.pi, 2 * math.pi)
-            cr.arc(x + bar_width - radius, y + h - radius, radius, 0, 0.5 * math.pi)
-            cr.arc(x + radius, y + h - radius, radius, 0.5 * math.pi, math.pi)
-            cr.close_path()
-            cr.fill()
+/* Content Area */
+.hub-content {
+    background-color: #121316;
+}
+
+/* Stats Pill Bar */
+.stats-banner {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: #71717a;
+}
+.stats-banner b {
+    color: #e4e4e7;
+}
+
+/* Dictation Cards (Wispr Flow style) */
+.dictation-card {
+    background: #18191e;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    transition: border-color 150ms ease;
+}
+.dictation-card:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dictation-time {
+    font-size: 11px;
+    font-weight: 600;
+    color: #71717a;
+}
+
+.dictation-body {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #f4f4f5;
+    margin-top: 6px;
+    margin-bottom: 8px;
+}
+
+.dictation-meta {
+    font-size: 11px;
+    color: #71717a;
+}
+
+/* Action button subtle */
+.btn-icon-subtle {
+    border-radius: 6px;
+    padding: 4px;
+    min-height: 28px;
+    min-width: 28px;
+    color: #a1a1aa;
+}
+.btn-icon-subtle:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f4f4f5;
+}
+
+/* Quick Try / Test Bar at bottom of Dictations */
+.try-bar {
+    background: #18191e;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 6px 10px;
+    margin-top: 12px;
+}
+.try-entry {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    font-size: 13px;
+    color: #f4f4f5;
+}
+.try-mic-btn {
+    border-radius: 8px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #e4e4e7;
+}
+.try-mic-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+.try-mic-btn.recording {
+    background: #ef4444;
+    color: white;
+}
+
+/* Dictionary & Style Cards */
+.clean-card {
+    background: #18191e;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 10px;
+}
+
+.style-card {
+    background: #18191e;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: all 150ms ease;
+}
+.style-card:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+}
+.style-card.selected {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.06);
+}
+"""
 
 
 class WhistleWindow(Adw.ApplicationWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.set_title("Whistle")
-        self.set_default_size(760, 620)
-        self.add_css_class("whistle-window")
+        self.set_default_size(860, 620)
+        self.add_css_class("whistle-hub")
 
-        self.is_recording = False
         self.config = load_config()
-        self.recording_start_time = 0.0
+        self.dictionary = load_dictionary()
+        self.is_recording = False
+        self.active_style = self.config.get("style", "code")
 
         self._build_ui()
         self._refresh_history()
 
-        # Visualizer animation loop (30 FPS)
-        GLib.timeout_add(33, self._on_anim_tick)
-
-    def _on_anim_tick(self):
-        if hasattr(self, "visualizer"):
-            self.visualizer.tick()
-        if self.is_recording:
-            elapsed = time.time() - self.recording_start_time
-            mins = int(elapsed // 60)
-            secs = int(elapsed % 60)
-            self.hero_caption.set_markup(f"<span color='#fb7185'><b>● Recording: {mins:02d}:{secs:02d}</b></span>")
-        return True
-
     def _build_ui(self):
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.set_content(main_box)
+        # Master Navigation Split View
+        self.split_view = Adw.NavigationSplitView()
+        self.set_content(self.split_view)
 
-        # Header Bar
-        header = Adw.HeaderBar()
-        header.add_css_class("flat")
-        main_box.append(header)
+        # 1. SIDEBAR
+        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        sidebar_box.add_css_class("hub-sidebar")
+        sidebar_box.set_size_request(210, -1)
 
-        # Left Header: App Branding
+        # Brand header
         brand_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        brand_box.set_margin_start(8)
+        brand_box.set_margin_top(8)
+        brand_box.set_margin_bottom(20)
+        brand_box.set_margin_start(4)
+
         icon = Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic")
         icon.set_pixel_size(18)
         brand_box.append(icon)
 
-        title_lbl = Gtk.Label(label="Whistle")
-        title_lbl.add_css_class("brand-title")
-        brand_box.append(title_lbl)
+        title = Gtk.Label(label="Whistle")
+        title.add_css_class("brand-label")
+        brand_box.append(title)
 
-        badge_lbl = Gtk.Label(label="v1.0")
-        badge_lbl.add_css_class("brand-badge")
-        brand_box.append(badge_lbl)
-        header.pack_start(brand_box)
+        ver = Gtk.Label(label="Hub")
+        ver.add_css_class("brand-version")
+        brand_box.append(ver)
+        sidebar_box.append(brand_box)
 
-        # Center Header: View Switcher
-        self.view_stack = Adw.ViewStack()
-        switcher_title = Adw.ViewSwitcherTitle()
-        switcher_title.set_stack(self.view_stack)
-        header.set_title_widget(switcher_title)
+        # Nav items
+        self.nav_buttons = {}
+        nav_items = [
+            ("dictations", "📝  Dictations"),
+            ("dictionary", "📖  Dictionary"),
+            ("styles", "✨  Styles"),
+            ("settings", "⚙️  Settings"),
+        ]
 
-        # Right Header: Live Status Badge
-        self.status_badge = Gtk.Label(label="● Ready")
-        self.status_badge.add_css_class("status-pill")
-        self.status_badge.add_css_class("ready")
-        self.status_badge.set_margin_end(8)
-        header.pack_end(self.status_badge)
+        nav_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        for key, label in nav_items:
+            btn = Gtk.Button(label=label)
+            btn.add_css_class("nav-item")
+            btn.set_xalign(0)
+            btn.connect("clicked", lambda b, k=key: self._switch_view(k))
+            nav_box.append(btn)
+            self.nav_buttons[key] = btn
 
-        # Pages
-        self._build_studio_tab()
-        self._build_history_tab()
-        self._build_settings_tab()
+        sidebar_box.append(nav_box)
 
-        main_box.append(self.view_stack)
+        # Spacer
+        spacer = Gtk.Box()
+        spacer.set_vexpand(True)
+        sidebar_box.append(spacer)
 
-    def _build_studio_tab(self):
+        # Sidebar Footer: Device status & Shortcut
+        footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        footer.add_css_class("sidebar-footer")
+
+        mic_label = clean_mic_name(get_active_audio_device())
+        mic_row = Gtk.Label(label=f"● {mic_label}", xalign=0)
+        mic_row.add_css_class("mic-name")
+        footer.append(mic_row)
+
+        shortcut_row = Gtk.Label(label="Hold Super+Shift+J", xalign=0)
+        footer.append(shortcut_row)
+
+        sidebar_box.append(footer)
+
+        sidebar_page = Adw.NavigationPage(child=sidebar_box, title="Whistle")
+        self.split_view.set_sidebar(sidebar_page)
+
+        # 2. CONTENT AREA
+        self.content_stack = Gtk.Stack()
+        self.content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.content_stack.set_transition_duration(150)
+        self.content_stack.add_css_class("hub-content")
+
+        self._build_dictations_view()
+        self._build_dictionary_view()
+        self._build_styles_view()
+        self._build_settings_view()
+
+        content_page = Adw.NavigationPage(child=self.content_stack, title="Whistle Hub")
+        self.split_view.set_content(content_page)
+
+        # Select initial view
+        self._switch_view("dictations")
+
+    def _switch_view(self, key):
+        for k, btn in self.nav_buttons.items():
+            if k == key:
+                btn.add_css_class("active")
+            else:
+                btn.remove_css_class("active")
+        self.content_stack.set_visible_child_name(key)
+
+    # -------------------------------------------------------------
+    # VIEW 1: DICTATIONS (Main Hub View)
+    # -------------------------------------------------------------
+    def _build_dictations_view(self):
+        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        # Header bar
+        header = Adw.HeaderBar()
+        header.add_css_class("flat")
+        title = Adw.WindowTitle(title="Dictations", subtitle="Voice transcripts & auto-pastes")
+        header.set_title_widget(title)
+
+        # Clear history button
+        clear_btn = Gtk.Button(label="Clear")
+        clear_btn.add_css_class("flat")
+        clear_btn.connect("clicked", self._on_clear_history)
+        header.pack_end(clear_btn)
+        main.append(header)
+
+        # Body container
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        body.set_margin_start(24)
+        body.set_margin_end(24)
+        body.set_margin_top(8)
+        body.set_margin_bottom(16)
+        body.set_vexpand(True)
+
+        # Search bar
+        self.search_entry = Gtk.SearchEntry()
+        self.search_entry.set_placeholder_text("Search transcripts...")
+        self.search_entry.connect("search-changed", lambda e: self._refresh_history())
+        body.append(self.search_entry)
+
+        # Stats banner
+        self.stats_label = Gtk.Label(
+            label="<b>3 dictations</b> · 42 words spoken · 100% Wayland auto-paste ready",
+            use_markup=True,
+            xalign=0
+        )
+        self.stats_label.add_css_class("stats-banner")
+        body.append(self.stats_label)
+
+        # Scrolled card list
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
-        scroll.set_hexpand(True)
+        self.dictations_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        scroll.set_child(self.dictations_container)
+        body.append(scroll)
 
-        clamp = Adw.Clamp(maximum_size=720, tightening_threshold=520)
+        # Bottom "Try Dictation" bar (discreet, Wispr Flow style)
+        try_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        try_bar.add_css_class("try-bar")
+
+        self.try_entry = Gtk.Entry()
+        self.try_entry.add_css_class("try-entry")
+        self.try_entry.set_hexpand(True)
+        self.try_entry.set_placeholder_text("Type or hold Super+Shift+J anywhere on your desktop to dictate...")
+        self.try_entry.connect("activate", self._on_try_entry_submit)
+        try_bar.append(self.try_entry)
+
+        self.try_mic_btn = Gtk.Button()
+        self.try_mic_btn.add_css_class("try-mic-btn")
+        self.try_mic_btn.set_child(Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic"))
+        self.try_mic_btn.set_tooltip_text("Click to test voice dictation")
+        self.try_mic_btn.connect("clicked", self._on_try_mic_clicked)
+        try_bar.append(self.try_mic_btn)
+
+        body.append(try_bar)
+
+        main.append(body)
+        self.content_stack.add_named(main, "dictations")
+
+    def _refresh_history(self):
+        while True:
+            child = self.dictations_container.get_first_child()
+            if child is None:
+                break
+            self.dictations_container.remove(child)
+
+        query = self.search_entry.get_text().strip() if hasattr(self, "search_entry") else ""
+        items = list_history(limit=50, query=query)
+
+        total_words = sum(len((it.get("formatted_text") or it.get("raw_text", "")).split()) for it in items)
+        if hasattr(self, "stats_label"):
+            count_str = f"<b>{len(items)} dictations</b>" if items else "<b>0 dictations</b>"
+            self.stats_label.set_markup(f"{count_str} · {total_words} words spoken · Active engine: Groq Llama 3.3")
+
+        if not items:
+            empty = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            empty.set_halign(Gtk.Align.CENTER)
+            empty.set_margin_top(60)
+            icon = Gtk.Image.new_from_icon_name("document-open-recent-symbolic")
+            icon.set_pixel_size(42)
+            icon.set_opacity(0.4)
+            empty.append(icon)
+
+            lbl = Gtk.Label(label="No dictations yet\nHold Super+Shift+J anywhere on your desktop to dictate.")
+            lbl.set_justify(Gtk.Justification.CENTER)
+            lbl.set_opacity(0.6)
+            empty.append(lbl)
+            self.dictations_container.append(empty)
+            return
+
+        for item in items:
+            text = item.get("formatted_text") or item.get("raw_text", "")
+            created = item.get("created_at", "")
+            item_id = item.get("id")
+            words = len(text.split())
+
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            card.add_css_class("dictation-card")
+
+            # Card Header
+            top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            time_lbl = Gtk.Label(label=f"{created}", xalign=0)
+            time_lbl.add_css_class("dictation-time")
+            time_lbl.set_hexpand(True)
+            top_row.append(time_lbl)
+
+            # Copy button
+            c_btn = Gtk.Button()
+            c_btn.set_child(Gtk.Image.new_from_icon_name("edit-copy-symbolic"))
+            c_btn.add_css_class("btn-icon-subtle")
+            c_btn.set_tooltip_text("Copy transcript")
+            c_btn.connect("clicked", lambda b, t=text: self._copy_text(t))
+            top_row.append(c_btn)
+
+            # Delete button
+            d_btn = Gtk.Button()
+            d_btn.set_child(Gtk.Image.new_from_icon_name("user-trash-symbolic"))
+            d_btn.add_css_class("btn-icon-subtle")
+            d_btn.set_tooltip_text("Delete entry")
+            d_btn.connect("clicked", lambda b, i=item_id: self._delete_item(i))
+            top_row.append(d_btn)
+            card.append(top_row)
+
+            # Body text
+            body_lbl = Gtk.Label(label=text, xalign=0, wrap=True)
+            body_lbl.add_css_class("dictation-body")
+            body_lbl.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            body_lbl.set_selectable(True)
+            card.append(body_lbl)
+
+            # Metadata footer
+            meta_lbl = Gtk.Label(label=f"{words} words · Auto-pasted", xalign=0)
+            meta_lbl.add_css_class("dictation-meta")
+            card.append(meta_lbl)
+
+            self.dictations_container.append(card)
+
+    def _on_try_entry_submit(self, entry):
+        text = entry.get_text().strip()
+        if not text:
+            return
+        entry.set_text("")
+        self.try_entry.set_placeholder_text("Polishing with WhisperFlow...")
+        
+        def run():
+            formatted = polish_transcript(text)
+            save_history_item(raw_text=text, formatted_text=formatted, duration_sec=1.0)
+            GLib.idle_add(self._on_try_finished)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_try_finished(self):
+        self.try_entry.set_placeholder_text("Type or hold Super+Shift+J anywhere on your desktop to dictate...")
+        self._refresh_history()
+
+    def _on_try_mic_clicked(self, btn):
+        if not self.is_recording:
+            self.is_recording = True
+            self.try_mic_btn.add_css_class("recording")
+            self.try_entry.set_placeholder_text("Listening... Speak now, then click mic to finish.")
+
+            def run_capture():
+                try:
+                    hotkey_script = str(REPO_DIR / "jarvis" / "hotkey.py")
+                    subprocess.run([sys.executable, hotkey_script], check=True)
+                except Exception as e:
+                    print(f"Error: {e}")
+                GLib.idle_add(self._on_mic_finished)
+
+            threading.Thread(target=run_capture, daemon=True).start()
+        else:
+            self.is_recording = False
+            self.try_mic_btn.remove_css_class("recording")
+            self.try_entry.set_placeholder_text("Processing speech...")
+
+    def _on_mic_finished(self):
+        self.is_recording = False
+        self.try_mic_btn.remove_css_class("recording")
+        self.try_entry.set_placeholder_text("Type or hold Super+Shift+J anywhere on your desktop to dictate...")
+        self._refresh_history()
+
+    # -------------------------------------------------------------
+    # VIEW 2: DICTIONARY (Custom Technical Words)
+    # -------------------------------------------------------------
+    def _build_dictionary_view(self):
+        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        header = Adw.HeaderBar()
+        header.add_css_class("flat")
+        title = Adw.WindowTitle(title="Dictionary", subtitle="Teach Whistle custom developer words & Hinglish")
+        header.set_title_widget(title)
+        main.append(header)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_vexpand(True)
+
+        clamp = Adw.Clamp(maximum_size=740, tightening_threshold=540)
         clamp.set_margin_top(16)
         clamp.set_margin_bottom(20)
-        clamp.set_margin_start(20)
-        clamp.set_margin_end(20)
+        clamp.set_margin_start(24)
+        clamp.set_margin_end(24)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         clamp.set_child(box)
         scroll.set_child(clamp)
 
-        # 1. Sleek Hardware & Status Capsule
-        hw_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        hw_box.add_css_class("hardware-bar")
+        # Add Word Card
+        add_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        add_card.add_css_class("clean-card")
 
-        mic_name = clean_mic_name(get_active_audio_device())
-        mic_lbl = Gtk.Label(label=f"🎙️  <b>Mic:</b> {mic_name}", use_markup=True, xalign=0)
-        mic_lbl.set_hexpand(True)
-        hw_box.append(mic_lbl)
+        add_title = Gtk.Label(label="<b>Add Custom Word or Acronym</b>", use_markup=True, xalign=0)
+        add_card.append(add_title)
 
-        shortcut_lbl = Gtk.Label(label="⚡  <b>Shortcut:</b> <tt>Super+Shift+J</tt>", use_markup=True)
-        hw_box.append(shortcut_lbl)
+        input_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.dict_from_entry = Gtk.Entry(placeholder_text="Spoken / Misheard (e.g. 'crawl')")
+        self.dict_from_entry.set_hexpand(True)
+        input_row.append(self.dict_from_entry)
 
-        model_name = self.config.get("groq_model", "Llama 3.3 70B").split("/")[-1].split(":")[0]
-        engine_lbl = Gtk.Label(label=f"🧠  <b>Engine:</b> {model_name}", use_markup=True)
-        hw_box.append(engine_lbl)
-        box.append(hw_box)
+        arrow_lbl = Gtk.Label(label="→")
+        arrow_lbl.set_opacity(0.5)
+        input_row.append(arrow_lbl)
 
-        # 2. Hero Dictation Card
-        hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-        hero.add_css_class("studio-hero")
+        self.dict_to_entry = Gtk.Entry(placeholder_text="Target Replacement (e.g. 'Groq')")
+        self.dict_to_entry.set_hexpand(True)
+        input_row.append(self.dict_to_entry)
 
-        # Visualizer & Mic Button
-        center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        center_box.set_halign(Gtk.Align.CENTER)
+        add_btn = Gtk.Button(label="Add Rule")
+        add_btn.add_css_class("suggested-action")
+        add_btn.connect("clicked", self._on_add_dictionary_word)
+        input_row.append(add_btn)
 
-        self.mic_btn = Gtk.Button()
-        self.mic_btn.add_css_class("mic-hero-btn")
-        mic_icon = Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic")
-        mic_icon.set_pixel_size(32)
-        self.mic_btn.set_child(mic_icon)
-        self.mic_btn.connect("clicked", self._on_mic_toggle)
-        center_box.append(self.mic_btn)
+        add_card.append(input_row)
+        box.append(add_card)
 
-        self.visualizer = VisualizerArea()
-        center_box.append(self.visualizer)
-
-        self.hero_caption = Gtk.Label(
-            label="Press and hold <b>Super+Shift+J</b> or click mic to dictate",
-            use_markup=True,
-            xalign=0.5
+        # Dictionary list
+        self.dict_list_group = Adw.PreferencesGroup(
+            title="Active Vocabulary Rules",
+            description="WhisperFlow automatically prioritizes these spellings during transcription."
         )
-        self.hero_caption.add_css_class("dim-label")
-        center_box.append(self.hero_caption)
-        hero.append(center_box)
+        box.append(self.dict_list_group)
 
-        # Tone / Format Presets
-        presets_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        presets_box.set_halign(Gtk.Align.CENTER)
-        
-        self.preset_radios = []
-        first_radio = None
-        for name in ["💻 Code & Tech", "💼 Clean Pro", "💬 Hinglish", "📝 Bullets"]:
-            radio = Gtk.CheckButton(label=name)
-            radio.add_css_class("tone-chip")
-            if first_radio is None:
-                first_radio = radio
-                radio.set_active(True)
-            else:
-                radio.set_group(first_radio)
-            presets_box.append(radio)
-            self.preset_radios.append(radio)
-        hero.append(presets_box)
-        box.append(hero)
+        self.dict_listbox = Gtk.ListBox()
+        self.dict_listbox.add_css_class("boxed-list")
+        self.dict_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.dict_list_group.add(self.dict_listbox)
 
-        # 3. Transcribed Text Canvas
-        transcript_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        transcript_container.add_css_class("transcript-card")
+        self._render_dictionary_list()
 
-        # Header bar of transcript card
-        th = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        th.add_css_class("transcript-header")
+        main.append(scroll)
+        self.content_stack.add_named(main, "dictionary")
 
-        self.word_count_lbl = Gtk.Label(label="0 words", xalign=0)
-        self.word_count_lbl.add_css_class("dim-label")
-        self.word_count_lbl.set_hexpand(True)
-        th.append(self.word_count_lbl)
+    def _render_dictionary_list(self):
+        while True:
+            row = self.dict_listbox.get_first_child()
+            if row is None:
+                break
+            self.dict_listbox.remove(row)
 
-        repolish_btn = Gtk.Button(label="✨ Polish")
-        repolish_btn.add_css_class("action-btn-subtle")
-        repolish_btn.connect("clicked", self._on_repolish_clicked)
-        th.append(repolish_btn)
+        for idx, item in enumerate(self.dictionary):
+            row = Adw.ActionRow(
+                title=f"<b>{item['to']}</b>",
+                subtitle=f"Replaces acoustic variations like: <i>{item['from']}</i>"
+            )
+            row.set_use_markup(True)
 
-        copy_btn = Gtk.Button(label="📋 Copy")
-        copy_btn.add_css_class("action-btn-subtle")
-        copy_btn.connect("clicked", self._on_copy_clicked)
-        th.append(copy_btn)
+            del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+            del_btn.add_css_class("flat")
+            del_btn.set_valign(Gtk.Align.CENTER)
+            del_btn.connect("clicked", lambda b, i=idx: self._delete_dict_word(i))
+            row.add_suffix(del_btn)
+            self.dict_listbox.append(row)
 
-        clear_btn = Gtk.Button(label="Clear")
-        clear_btn.add_css_class("action-btn-subtle")
-        clear_btn.connect("clicked", lambda b: self._set_text(""))
-        th.append(clear_btn)
-        transcript_container.append(th)
+    def _on_add_dictionary_word(self, btn):
+        f = self.dict_from_entry.get_text().strip()
+        t = self.dict_to_entry.get_text().strip()
+        if f and t:
+            self.dictionary.insert(0, {"from": f, "to": t})
+            save_dictionary(self.dictionary)
+            self.dict_from_entry.set_text("")
+            self.dict_to_entry.set_text("")
+            self._render_dictionary_list()
+            toast = Adw.Toast.new(f"Added '{t}' to dictionary")
+            self.add_toast(toast)
 
-        # Editor
-        text_scroll = Gtk.ScrolledWindow()
-        text_scroll.set_min_content_height(140)
-        self.text_view = Gtk.TextView()
-        self.text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.text_view.set_left_margin(16)
-        self.text_view.set_right_margin(16)
-        self.text_view.set_top_margin(14)
-        self.text_view.set_bottom_margin(14)
-        self.text_view.get_buffer().connect("changed", self._on_text_changed)
-        text_scroll.set_child(self.text_view)
-        transcript_container.append(text_scroll)
+    def _delete_dict_word(self, index):
+        if 0 <= index < len(self.dictionary):
+            removed = self.dictionary.pop(index)
+            save_dictionary(self.dictionary)
+            self._render_dictionary_list()
+            toast = Adw.Toast.new(f"Removed '{removed['to']}'")
+            self.add_toast(toast)
 
-        box.append(transcript_container)
+    # -------------------------------------------------------------
+    # VIEW 3: STYLES (Writing Personalization)
+    # -------------------------------------------------------------
+    def _build_styles_view(self):
+        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
-        page = self.view_stack.add_titled(scroll, "studio", "Studio")
-        page.set_icon_name("audio-input-microphone-symbolic")
+        header = Adw.HeaderBar()
+        header.add_css_class("flat")
+        title = Adw.WindowTitle(title="Writing Styles", subtitle="Configure formatting tone & structure")
+        header.set_title_widget(title)
+        main.append(header)
 
-    def _build_history_tab(self):
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
-        scroll.set_hexpand(True)
 
         clamp = Adw.Clamp(maximum_size=740, tightening_threshold=540)
         clamp.set_margin_top(16)
         clamp.set_margin_bottom(20)
-        clamp.set_margin_start(20)
-        clamp.set_margin_end(20)
+        clamp.set_margin_start(24)
+        clamp.set_margin_end(24)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         clamp.set_child(box)
         scroll.set_child(clamp)
 
-        # Search Bar & Actions
-        bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_hexpand(True)
-        self.search_entry.set_placeholder_text("Search past dictations...")
-        self.search_entry.connect("search-changed", lambda e: self._refresh_history())
-        bar_box.append(self.search_entry)
+        styles = [
+            ("code", "🛠️  Developer & Technical", "Preserves camelCase, programming flags, CLI commands, and technical acronyms without stripping punctuation.", True),
+            ("pro", "💼  Clean & Professional", "Removes verbal fillers (um, uh, like), corrects grammar, and formats into clean, publication-ready prose.", False),
+            ("hinglish", "💬  Hinglish Natural", "Retains mixed Hindi-English speech in English letters (Latin script) without awkward translations.", False),
+            ("bullets", "📝  Structured Bullets", "Transforms spoken trains of thought into concise, organized bullet points.", False),
+        ]
 
-        clear_history_btn = Gtk.Button(label="Clear History")
-        clear_history_btn.add_css_class("destructive-action")
-        clear_history_btn.connect("clicked", self._on_clear_all_history)
-        bar_box.append(clear_history_btn)
-        box.append(bar_box)
+        self.style_widgets = {}
+        for key, name, desc, default in styles:
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            card.add_css_class("style-card")
+            if key == self.active_style:
+                card.add_css_class("selected")
 
-        # Dynamic Container for History Cards
-        self.history_cards_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.append(self.history_cards_box)
+            header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            title_lbl = Gtk.Label(label=f"<b>{name}</b>", use_markup=True, xalign=0)
+            title_lbl.set_hexpand(True)
+            header_row.append(title_lbl)
 
-        page = self.view_stack.add_titled(scroll, "history", "History")
-        page.set_icon_name("document-open-recent-symbolic")
+            select_btn = Gtk.Button(label="Active" if key == self.active_style else "Select")
+            select_btn.add_css_class("flat")
+            select_btn.connect("clicked", lambda b, k=key: self._on_select_style(k))
+            header_row.append(select_btn)
+            card.append(header_row)
 
-    def _build_settings_tab(self):
+            desc_lbl = Gtk.Label(label=desc, xalign=0, wrap=True)
+            desc_lbl.set_opacity(0.7)
+            card.append(desc_lbl)
+
+            box.append(card)
+            self.style_widgets[key] = (card, select_btn)
+
+        main.append(scroll)
+        self.content_stack.add_named(main, "styles")
+
+    def _on_select_style(self, style_key):
+        self.active_style = style_key
+        self.config["style"] = style_key
+        save_config(self.config)
+
+        for key, (card, btn) in self.style_widgets.items():
+            if key == style_key:
+                card.add_css_class("selected")
+                btn.set_label("Active")
+            else:
+                card.remove_css_class("selected")
+                btn.set_label("Select")
+
+        toast = Adw.Toast.new("Writing style updated")
+        self.add_toast(toast)
+
+    # -------------------------------------------------------------
+    # VIEW 4: SETTINGS (Preferences)
+    # -------------------------------------------------------------
+    def _build_settings_view(self):
+        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        header = Adw.HeaderBar()
+        header.add_css_class("flat")
+        title = Adw.WindowTitle(title="Settings", subtitle="System shortcuts, audio & AI models")
+        header.set_title_widget(title)
+        main.append(header)
+
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
-        scroll.set_hexpand(True)
 
-        clamp = Adw.Clamp(maximum_size=720, tightening_threshold=520)
+        clamp = Adw.Clamp(maximum_size=740, tightening_threshold=540)
         clamp.set_margin_top(16)
         clamp.set_margin_bottom(20)
-        clamp.set_margin_start(20)
-        clamp.set_margin_end(20)
+        clamp.set_margin_start(24)
+        clamp.set_margin_end(24)
 
         pref_page = Adw.PreferencesPage()
         clamp.set_child(pref_page)
         scroll.set_child(clamp)
 
-        # Cloud AI
-        cloud_group = Adw.PreferencesGroup(
-            title="Cloud Intelligence",
-            description="Ultra-fast Groq Llama 3.3 70B formatting with technical auto-correction."
+        # Shortcuts
+        sh_group = Adw.PreferencesGroup(title="Global Shortcuts & Dictation")
+        pref_page.add(sh_group)
+
+        hotkey_row = Adw.ActionRow(
+            title="Global Hotkey",
+            subtitle="<Super><Shift>j — Press and hold to dictate, release to auto-paste"
         )
+        sh_group.add(hotkey_row)
+
+        mic_row = Adw.ActionRow(
+            title="Audio Input Device",
+            subtitle=get_active_audio_device()
+        )
+        sh_group.add(mic_row)
+
+        # Cloud AI
+        cloud_group = Adw.PreferencesGroup(title="Cloud Intelligence (Groq)")
         pref_page.add(cloud_group)
 
         self.groq_key_row = Adw.PasswordEntryRow(title="Groq API Key")
@@ -498,13 +803,10 @@ class WhistleWindow(Adw.ApplicationWindow):
         cloud_group.add(self.groq_model_row)
 
         # Local Fallback
-        local_group = Adw.PreferencesGroup(
-            title="Offline & Local Engine",
-            description="Local Cactus compute fallback for 100% private, zero-latency dictation."
-        )
+        local_group = Adw.PreferencesGroup(title="Local Offline Fallback")
         pref_page.add(local_group)
 
-        self.ollama_url_row = Adw.EntryRow(title="Ollama Endpoint")
+        self.ollama_url_row = Adw.EntryRow(title="Ollama URL")
         self.ollama_url_row.set_text(self.config.get("ollama_url", "http://localhost:11434"))
         local_group.add(self.ollama_url_row)
 
@@ -512,24 +814,11 @@ class WhistleWindow(Adw.ApplicationWindow):
         self.ollama_model_row.set_text(self.config.get("ollama_model", "llama3.2"))
         local_group.add(self.ollama_model_row)
 
-        # Shortcuts
-        key_group = Adw.PreferencesGroup(
-            title="Desktop Global Hotkey",
-            description="Control how dictation triggers across your entire Linux desktop."
-        )
-        pref_page.add(key_group)
-
-        shortcut_row = Adw.ActionRow(
-            title="Active Hotkey",
-            subtitle="Super+Shift+J (Hold to speak, release to auto-paste)"
-        )
-        key_group.add(shortcut_row)
-
         # Save Button
         save_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         save_box.set_halign(Gtk.Align.END)
         save_box.set_margin_top(16)
-        save_btn = Gtk.Button(label="Save Preferences")
+        save_btn = Gtk.Button(label="Save Settings")
         save_btn.add_css_class("suggested-action")
         save_btn.connect("clicked", self._on_save_settings)
         save_box.append(save_btn)
@@ -538,94 +827,8 @@ class WhistleWindow(Adw.ApplicationWindow):
         action_group.add(save_box)
         pref_page.add(action_group)
 
-        page = self.view_stack.add_titled(scroll, "settings", "Settings")
-        page.set_icon_name("emblem-system-symbolic")
-
-    def _on_mic_toggle(self, btn):
-        if not self.is_recording:
-            # Start Recording
-            self.is_recording = True
-            self.recording_start_time = time.time()
-            self.mic_btn.add_css_class("recording")
-            self.visualizer.set_active(True)
-
-            self.status_badge.set_text("● Recording")
-            self.status_badge.remove_css_class("ready")
-            self.status_badge.add_css_class("recording")
-
-            def run_capture():
-                try:
-                    hotkey_script = str(REPO_DIR / "jarvis" / "hotkey.py")
-                    subprocess.run([sys.executable, hotkey_script], check=True)
-                except Exception as e:
-                    print(f"Recording error: {e}")
-                GLib.idle_add(self._on_dictation_finished)
-
-            threading.Thread(target=run_capture, daemon=True).start()
-        else:
-            # Finish Recording
-            self._set_processing_state()
-
-    def _set_processing_state(self):
-        self.is_recording = False
-        self.visualizer.set_active(False)
-        self.mic_btn.remove_css_class("recording")
-        self.status_badge.set_text("⚡ Polishing")
-        self.status_badge.remove_css_class("recording")
-        self.status_badge.add_css_class("processing")
-        self.hero_caption.set_markup("<span color='#38bdf8'><b>WhisperFlow is polishing speech...</b></span>")
-
-    def _on_dictation_finished(self):
-        self.is_recording = False
-        self.visualizer.set_active(False)
-        self.mic_btn.remove_css_class("recording")
-
-        self.status_badge.set_text("● Ready")
-        self.status_badge.remove_css_class("recording")
-        self.status_badge.remove_css_class("processing")
-        self.status_badge.add_css_class("ready")
-
-        self.hero_caption.set_markup("<span><b>Dictation finished!</b> Text copied to clipboard & history.</span>")
-
-        # Load newest result
-        history = list_history(limit=1)
-        if history:
-            text = history[0].get("formatted_text") or history[0].get("raw_text", "")
-            self._set_text(text)
-
-        self._refresh_history()
-
-    def _on_repolish_clicked(self, btn):
-        text = self._get_text()
-        if not text.strip():
-            return
-        btn.set_sensitive(False)
-        self.status_badge.set_text("⚡ Polishing")
-        self.status_badge.add_css_class("processing")
-
-        def do_polish():
-            polished = polish_transcript(text)
-            GLib.idle_add(lambda: self._finish_repolish(btn, polished))
-
-        threading.Thread(target=do_polish, daemon=True).start()
-
-    def _finish_repolish(self, btn, polished_text):
-        btn.set_sensitive(True)
-        self._set_text(polished_text)
-        self.status_badge.set_text("● Ready")
-        self.status_badge.remove_css_class("processing")
-        self.status_badge.add_css_class("ready")
-        save_history_item(raw_text=self._get_text(), formatted_text=polished_text, duration_sec=1.0)
-        self._refresh_history()
-
-    def _on_copy_clicked(self, btn):
-        text = self._get_text()
-        if text:
-            clipboard = Gdk.Display.get_default().get_clipboard()
-            clipboard.set(text)
-            toast = Adw.Toast.new("Copied to clipboard!")
-            toast.set_timeout(2)
-            self.add_toast(toast)
+        main.append(scroll)
+        self.content_stack.add_named(main, "settings")
 
     def _on_save_settings(self, btn):
         self.config["groq_api_key"] = self.groq_key_row.get_text().strip()
@@ -634,105 +837,27 @@ class WhistleWindow(Adw.ApplicationWindow):
         self.config["ollama_model"] = self.ollama_model_row.get_text().strip()
         save_config(self.config)
 
-        toast = Adw.Toast.new("Preferences saved successfully")
-        toast.set_timeout(2)
+        toast = Adw.Toast.new("Settings saved")
         self.add_toast(toast)
 
-    def _refresh_history(self):
-        # Clear existing cards
-        while True:
-            child = self.history_cards_box.get_first_child()
-            if child is None:
-                break
-            self.history_cards_box.remove(child)
-
-        query = self.search_entry.get_text().strip()
-        items = list_history(limit=40, query=query)
-
-        if not items:
-            empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            empty_box.set_halign(Gtk.Align.CENTER)
-            empty_box.set_margin_top(40)
-            empty_icon = Gtk.Image.new_from_icon_name("document-open-recent-symbolic")
-            empty_icon.set_pixel_size(48)
-            empty_box.append(empty_icon)
-            empty_lbl = Gtk.Label(label="No dictations found yet.")
-            empty_lbl.add_css_class("dim-label")
-            empty_box.append(empty_lbl)
-            self.history_cards_box.append(empty_box)
-            return
-
-        for item in items:
-            text = item.get("formatted_text") or item.get("raw_text", "")
-            created = item.get("created_at", "")
-            item_id = item.get("id")
-
-            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            card.add_css_class("history-entry")
-
-            # Card Header
-            header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            time_lbl = Gtk.Label(label=f"⏱ {created}", xalign=0)
-            time_lbl.add_css_class("dim-label")
-            time_lbl.set_hexpand(True)
-            header.append(time_lbl)
-
-            # Copy button
-            c_btn = Gtk.Button(icon_name="edit-copy-symbolic")
-            c_btn.add_css_class("flat")
-            c_btn.set_tooltip_text("Copy text")
-            c_btn.connect("clicked", lambda b, t=text: self._copy_text(t))
-            header.append(c_btn)
-
-            # Delete button
-            d_btn = Gtk.Button(icon_name="user-trash-symbolic")
-            d_btn.add_css_class("flat")
-            d_btn.set_tooltip_text("Delete entry")
-            d_btn.connect("clicked", lambda b, i=item_id: self._delete_item(i))
-            header.append(d_btn)
-            card.append(header)
-
-            # Card Body
-            body_lbl = Gtk.Label(label=text, xalign=0, wrap=True)
-            body_lbl.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-            body_lbl.set_selectable(True)
-            card.append(body_lbl)
-
-            self.history_cards_box.append(card)
-
+    # -------------------------------------------------------------
+    # SHARED ACTIONS
+    # -------------------------------------------------------------
     def _copy_text(self, text: str):
         clipboard = Gdk.Display.get_default().get_clipboard()
         clipboard.set(text)
-        toast = Adw.Toast.new("Copied to clipboard!")
-        toast.set_timeout(2)
+        toast = Adw.Toast.new("Copied to clipboard")
         self.add_toast(toast)
 
     def _delete_item(self, item_id: int):
         delete_history_item(item_id)
         self._refresh_history()
 
-    def _on_clear_all_history(self, btn):
+    def _on_clear_history(self, btn):
         clear_all_history()
         self._refresh_history()
         toast = Adw.Toast.new("History cleared")
-        toast.set_timeout(2)
         self.add_toast(toast)
-
-    def _on_text_changed(self, buf):
-        text = self._get_text()
-        words = len(text.split()) if text.strip() else 0
-        chars = len(text)
-        self.word_count_lbl.set_text(f"{words} words  •  {chars} characters")
-
-    def _get_text(self) -> str:
-        buf = self.text_view.get_buffer()
-        start = buf.get_start_iter()
-        end = buf.get_end_iter()
-        return buf.get_text(start, end, True)
-
-    def _set_text(self, text: str):
-        buf = self.text_view.get_buffer()
-        buf.set_text(text)
 
 
 class WhistleApp(Adw.Application):
@@ -743,11 +868,10 @@ class WhistleApp(Adw.Application):
         )
 
     def do_activate(self):
-        # Load modern custom CSS
         display = Gdk.Display.get_default()
         if display:
             provider = Gtk.CssProvider()
-            provider.load_from_data(CSS_STYLE)
+            provider.load_from_data(APP_CSS)
             Gtk.StyleContext.add_provider_for_display(
                 display,
                 provider,
