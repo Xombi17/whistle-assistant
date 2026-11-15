@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from jarvis.model import LocalModels
 from jarvis.validation import validate
+from jarvis.formatter import polish_transcript
 
 CONFIG_DIR = Path.home() / '.config' / 'jarvis'
 MODE_FILE = CONFIG_DIR / 'mode'
@@ -469,7 +470,9 @@ def run_pipeline(overlay):
             raise ValueError('No speech detected. Please check microphone.')
 
         if overlay.mode == 'transcribe':
-            overlay.result_queue.put(('transcribe', transcript, None))
+            overlay.set_status_threadsafe('Formatting text…', phase='processing')
+            polished = polish_transcript(transcript)
+            overlay.result_queue.put(('transcribe', polished or transcript, None))
         else:
             overlay.set_status_threadsafe('Interpreting command…')
             response = model.propose(transcript)
