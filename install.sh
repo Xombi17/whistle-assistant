@@ -52,10 +52,30 @@ if command -v rsvg-convert &>/dev/null; then
     rsvg-convert -w 48 -h 48 "${REPO_DIR}/assets/whistle.svg" -o "${ICON_DIR}/48x48/apps/whistle.png"
 fi
 
+# Install CLI launchers into ~/.local/bin
+echo "Installing CLI launchers to ~/.local/bin..."
+BIN_DIR="${HOME}/.local/bin"
+mkdir -p "${BIN_DIR}"
+
+cat <<EOF > "${BIN_DIR}/whistle"
+#!/usr/bin/env bash
+set -e
+exec "${REPO_DIR}/launch.sh" "\$@"
+EOF
+chmod +x "${BIN_DIR}/whistle"
+
+cat <<EOF > "${BIN_DIR}/whistle-hud"
+#!/usr/bin/env bash
+set -e
+exec "${REPO_DIR}/.venv/bin/python" "${REPO_DIR}/jarvis/hotkey.py" "\$@"
+EOF
+chmod +x "${BIN_DIR}/whistle-hud"
+
 # Register desktop entry
 echo "Configuring GNOME desktop launcher..."
 DESKTOP_DIR="${HOME}/.local/share/applications"
 mkdir -p "${DESKTOP_DIR}"
+rm -f "${DESKTOP_DIR}/jarvis.desktop"
 
 cat <<EOF > "${DESKTOP_DIR}/whistle.desktop"
 [Desktop Entry]
@@ -64,10 +84,11 @@ Type=Application
 Name=Whistle
 GenericName=Voice Dictation & Assistant
 Comment=Ultra-fast, privacy-first local voice dictation with technical WhisperFlow auto-correction
-Exec="${REPO_DIR}/launch.sh"
+Path=${REPO_DIR}
+Exec=${BIN_DIR}/whistle
 Icon=whistle
 Terminal=false
-Categories=Utility;AudioVideo;Audio;
+Categories=AudioVideo;Audio;
 StartupWMClass=WhistleApp
 Keywords=whistle;jarvis;voice;dictation;whisper;groq;speech;
 EOF

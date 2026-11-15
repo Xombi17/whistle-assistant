@@ -1,7 +1,12 @@
 import json
 import os
 import urllib.request
+from pathlib import Path
 from typing import Optional
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+WHISTLE_WEIGHTS = ROOT_DIR / "whistle.cact"
+NEEDLE_WEIGHTS = ROOT_DIR / "needle3.cact"
 
 DEFAULT_BIAS_KEYWORDS = (
     # Modern AI & Tech terms frequently misheard as English common nouns
@@ -49,11 +54,11 @@ def transcribe_with_groq_whisper(wav_path: str, api_key: str, prompt: str = "") 
             headers={
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
                 "Authorization": f"Bearer {api_key.strip()}",
-                "User-Agent": "JARVIS-WhisperFlow/1.0",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)",
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
+        with urllib.request.urlopen(req, timeout=8.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             text = data.get("text", "").strip()
             return text if text else None
@@ -68,10 +73,10 @@ class LocalModels:
 
     def propose(self, text):
         os.environ['CACTUS_TELEMETRY'] = '0'
-        os.environ['HF_HUB_OFFLINE'] = '1'
         import cactus
         if self.agent is None:
-            self.agent = cactus.Cactus(tools=self.tools)
+            weights = str(NEEDLE_WEIGHTS) if NEEDLE_WEIGHTS.exists() else None
+            self.agent = cactus.Cactus(tools=self.tools, weights=weights)
         return self.agent.complete(text)
 
     def reset(self):
@@ -89,7 +94,9 @@ class LocalModels:
 
         # 2. Local Cactus.Whistle fallback with keyword biasing
         os.environ['CACTUS_TELEMETRY'] = '0'
-        os.environ['HF_HUB_OFFLINE'] = '1'
+        if WHISTLE_WEIGHTS.exists():
+            os.environ['CACTUS_WHISTLE_WEIGHTS'] = str(WHISTLE_WEIGHTS)
         import cactus
         kw = keywords if keywords is not None else DEFAULT_BIAS_KEYWORDS
-        return cactus.transcribe(wav, keywords=kw)['text']
+        weights = str(WHISTLE_WEIGHTS) if WHISTLE_WEIGHTS.exists() else None
+        return cactus.transcribe(wav, keywords=kw, weights=weights)['text']

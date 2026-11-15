@@ -48,7 +48,7 @@ dev = [
 ]
 
 [project.scripts]
-whistle = "jarvis.server:main"
+whistle = "jarvis.app:main"
 whistle-hud = "jarvis.hotkey:main"
 
 [project.urls]

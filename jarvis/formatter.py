@@ -90,7 +90,7 @@ def format_with_groq(text: str, api_key: str, model: str = "openai/gpt-oss-120b"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key.strip()}",
-        "User-Agent": "JARVIS-WhisperFlow/1.0",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)",
     }
 
     candidates = [model]
@@ -134,7 +134,7 @@ def format_with_deepseek(text: str, api_key: str, model: str = "deepseek-chat") 
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key.strip()}",
-        "User-Agent": "JARVIS-WhisperFlow/1.0",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)",
     }
     payload = {
         "model": model,
@@ -183,7 +183,7 @@ def format_with_xai(text: str, api_key: str, model: str = "grok-beta") -> Option
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key.strip()}",
-        "User-Agent": "JARVIS-WhisperFlow/1.0",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)",
     }
     payload = {
         "model": model,

@@ -3,12 +3,14 @@
 import http.server
 import json
 import os
+import shutil
 import socketserver
 import subprocess
 import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -120,9 +122,9 @@ class JarvisAPIHandler(http.server.SimpleHTTPRequestHandler):
                 data = json.loads(body.decode("utf-8"))
                 raw_text = data.get("text", "")
                 from jarvis.formatter import polish_transcript
-                from jarvis.history import add_history_entry
+                from jarvis.history import save_history_item
                 formatted = polish_transcript(raw_text)
-                add_history_entry(raw_text=raw_text, formatted_text=formatted, duration_sec=1.5)
+                save_history_item(raw_text=raw_text, formatted_text=formatted, duration_sec=1.5)
                 self.send_json({"formatted": formatted, "raw": raw_text})
             except Exception as e:
                 self.send_json({"error": str(e)}, status=400)
@@ -140,34 +142,95 @@ class JarvisAPIHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(payload)
 
 
+def is_server_running(url: str = f"http://127.0.0.1:{PORT}/api/status") -> bool:
+    """Check if the Whistle server is already listening and responsive."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Whistle-Launcher"})
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def kill_stale_server():
+    """If port is occupied by an unresponsive process, terminate it to allow clean startup."""
+    try:
+        res = subprocess.run(["fuser", f"{PORT}/tcp"], capture_output=True, text=True)
+        pids = [int(p) for p in res.stdout.strip().split() if p.isdigit()]
+        my_pid = os.getpid()
+        for pid in pids:
+            if pid != my_pid:
+                try:
+                    os.kill(pid, 15)  # SIGTERM
+                except ProcessLookupError:
+                    pass
+        if pids:
+            time.sleep(0.5)
+    except Exception:
+        pass
+
+
 def launch_server():
     socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("127.0.0.1", PORT), JarvisAPIHandler) as httpd:
-        print(f"Whistle Desktop Server listening on http://127.0.0.1:{PORT}")
-        httpd.serve_forever()
+    try:
+        with socketserver.TCPServer(("127.0.0.1", PORT), JarvisAPIHandler) as httpd:
+            print(f"Whistle Desktop Server listening on http://127.0.0.1:{PORT}")
+            httpd.serve_forever()
+    except OSError as e:
+        if e.errno == 98:  # Address already in use
+            if is_server_running():
+                open_desktop_window()
+                return
+            # Unresponsive process occupying port
+            kill_stale_server()
+            # Retry once
+            with socketserver.TCPServer(("127.0.0.1", PORT), JarvisAPIHandler) as httpd:
+                print(f"Whistle Desktop Server listening on http://127.0.0.1:{PORT}")
+                httpd.serve_forever()
+        else:
+            raise
 
 
 def open_desktop_window():
-    """Opens the application in dedicated, borderless Chrome app window mode."""
+    """Opens the application in dedicated, borderless Chrome app window mode or default browser."""
     url = f"http://127.0.0.1:{PORT}"
-    # Prefer Chrome app mode for a sleek desktop application experience
-    chrome_cmd = [
-        "google-chrome",
-        f"--app={url}",
-        "--class=WhistleApp",
-        "--name=Whistle",
-        "--force-dark-mode",
-        "--enable-features=WebUIDarkMode",
-    ]
+    browsers = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "brave-browser", "microsoft-edge"]
+    chosen_browser = None
+    for b in browsers:
+        if shutil.which(b):
+            chosen_browser = b
+            break
+
+    if chosen_browser:
+        chrome_cmd = [
+            chosen_browser,
+            f"--app={url}",
+            "--class=WhistleApp",
+            "--app-id=WhistleApp",
+            "--name=Whistle",
+            "--force-dark-mode",
+            "--enable-features=WebUIDarkMode",
+        ]
+        try:
+            subprocess.Popen(chrome_cmd)
+            return
+        except Exception:
+            pass
+
+    # Fallback to system default browser
     try:
-        subprocess.Popen(chrome_cmd)
+        subprocess.Popen(["xdg-open", url])
     except Exception:
-        # Fallback to system default browser
         import webbrowser
         webbrowser.open(url)
 
 
 def main():
+    # If the server is already active, simply open/focus the UI window and exit
+    if is_server_running():
+        open_desktop_window()
+        return
+
     def _open():
         time.sleep(0.5)
         open_desktop_window()

@@ -28,6 +28,7 @@ from jarvis.validation import validate
 CONFIG_DIR = Path.home() / ".config" / "jarvis"
 MODE_FILE = CONFIG_DIR / "mode"
 PID_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", tempfile.gettempdir()), "jarvis.pid")
+HELD_FLAG = Path(tempfile.gettempdir()) / "whistle_held.flag"
 
 TOOL_SCHEMAS = [
     {
@@ -144,9 +145,29 @@ def compute_rms(pcm_bytes):
         return 0
 
 
+def find_physical_keyboards():
+    """Finds physical keyboard input devices, prioritizing real hardware keyboards."""
+    hardware_kbds = []
+    virtual_kbds = []
+    for dev in sorted(glob.glob("/dev/input/event*")):
+        try:
+            with open(dev, "rb") as f:
+                buf = array.array("B", [0] * 256)
+                fcntl.ioctl(f.fileno(), 2 << 30 | (len(buf) << 16) | (ord("E") << 8) | 0x06, buf)
+                name = buf.tobytes().split(b"\x00")[0].decode("utf-8", errors="ignore").lower()
+                if "keyboard" in name:
+                    if "virtual" in name or "snippet" in name:
+                        virtual_kbds.append(dev)
+                    else:
+                        hardware_kbds.append(dev)
+        except Exception:
+            pass
+    return hardware_kbds or virtual_kbds or ["/dev/input/event2", "/dev/input/event7"]
+
+
 def get_pressed_key_codes():
     pressed = set()
-    for dev in ["/dev/input/event2", "/dev/input/event7"]:
+    for dev in find_physical_keyboards():
         try:
             fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
             buf = array.array("B", [0] * 64)
@@ -385,7 +406,7 @@ def paste_text(text):
     time.sleep(0.12)
 
     pasted = False
-    for kbd in ["/dev/input/event17", "/dev/input/event2", "/dev/input/event7"]:
+    for kbd in find_physical_keyboards():
         try:
             subprocess.run(["evemu-event", kbd, "--sync", "--type", "EV_KEY", "--code", "KEY_LEFTCTRL", "--value", "1"], check=True, timeout=1)
             subprocess.run(["evemu-event", kbd, "--sync", "--type", "EV_KEY", "--code", "KEY_V", "--value", "1"], check=True, timeout=1)
@@ -398,23 +419,32 @@ def paste_text(text):
             continue
 
     if pasted:
-        subprocess.run(["notify-send", "WhisperFlow", f"Inserted: {text[:45]}"], check=False)
+        subprocess.run(["notify-send", "Whistle", f"Inserted: {text[:45]}"], check=False)
     else:
-        subprocess.run(["notify-send", "WhisperFlow", f'Copied: "{text[:45]}" (Ctrl+V)'], check=False)
+        subprocess.run(["notify-send", "Whistle", f'Copied: "{text[:45]}" (Ctrl+V)'], check=False)
 
 
 def monitor_key_release(stop_event):
-    initial_modifiers = {42, 54, 125, 126}
-    initial_pressed = get_pressed_key_codes() & initial_modifiers
-    was_holding = bool(initial_pressed)
+    """Detects when held hotkey shortcut is released."""
+    time.sleep(0.08)
+    initial_pressed = get_pressed_key_codes()
+    held_keys = {k for k in initial_pressed if k < 256}
 
-    time.sleep(0.5)
-    if not was_holding:
+    if not held_keys:
+        try:
+            HELD_FLAG.unlink(missing_ok=True)
+        except Exception:
+            pass
         return
 
+    time.sleep(0.15)
     while not stop_event.is_set():
-        current_pressed = get_pressed_key_codes()
-        if not (current_pressed & initial_modifiers):
+        current = get_pressed_key_codes()
+        if not (current & held_keys):
+            try:
+                HELD_FLAG.unlink(missing_ok=True)
+            except Exception:
+                pass
             stop_event.set()
             return
         time.sleep(0.04)
@@ -428,6 +458,12 @@ def audio_recorder(overlay, stop_event, pcm_chunks):
     start_time = time.time()
     max_duration = 35.0
 
+    speech_detected = False
+    speech_frames = 0
+    silence_frames = 0
+    SPEECH_THRESHOLD = 450
+    SILENCE_LIMIT_FRAMES = 14  # ~1.4s silence after speech automatically stops recording
+
     try:
         while not stop_event.is_set():
             data = proc.stdout.read(chunk_size)
@@ -436,6 +472,18 @@ def audio_recorder(overlay, stop_event, pcm_chunks):
             pcm_chunks.append(data)
             rms = compute_rms(data)
             overlay.current_rms = rms
+
+            # Auto-VAD silence detection
+            if rms >= SPEECH_THRESHOLD:
+                speech_frames += 1
+                if speech_frames >= 2:
+                    speech_detected = True
+                    silence_frames = 0
+            elif speech_detected:
+                silence_frames += 1
+                if silence_frames >= SILENCE_LIMIT_FRAMES:
+                    stop_event.set()
+                    break
 
             if time.time() - start_time > max_duration:
                 stop_event.set()
@@ -461,8 +509,8 @@ def run_pipeline(overlay):
         overlay.set_status_threadsafe("NEURAL INFERENCE // TRANSCRIBING...", phase="processing")
 
         all_pcm = b"".join(pcm_chunks)
-        if len(all_pcm) < 9600:
-            raise ValueError("Recording too short — hold key while speaking.")
+        if len(all_pcm) < 4800:
+            raise ValueError("Recording too short — speak while holding key.")
 
         wav_bytes = pcm_to_wav(all_pcm)
 
@@ -510,8 +558,17 @@ def signal_existing_process():
     if os.path.exists(PID_FILE):
         try:
             with open(PID_FILE, "r") as f:
-                pid = int(f.read().strip())
+                content = f.read().strip().split()
+                pid = int(content[0])
+
             os.kill(pid, 0)
+
+            # If user is currently holding the key down, GNOME will auto-repeat launch.
+            # While HELD_FLAG exists, NEVER abort or signal the existing recording!
+            if HELD_FLAG.exists():
+                return True
+
+            # If HELD_FLAG does not exist, this is an intentional second press in toggle mode
             os.kill(pid, signal.SIGUSR1)
             return True
         except Exception:
@@ -537,7 +594,7 @@ def main():
     if args.status:
         mode = get_stored_mode()
         print(f"Current mode: {mode}")
-        subprocess.run(["notify-send", "JARVIS Mode", f"Active mode: {mode}"], check=False)
+        subprocess.run(["notify-send", "Whistle Mode", f"Active mode: {mode}"], check=False)
         return 0
 
     if signal_existing_process():
@@ -546,6 +603,14 @@ def main():
     my_pid = os.getpid()
     with open(PID_FILE, "w") as f:
         f.write(str(my_pid))
+
+    # Mark HELD_FLAG if shortcut keys are physically held at launch
+    initial_keys = {k for k in get_pressed_key_codes() if k < 256}
+    if initial_keys:
+        try:
+            HELD_FLAG.touch()
+        except Exception:
+            pass
 
     active_mode = args.mode or get_stored_mode()
     root = tk.Tk()
@@ -564,6 +629,10 @@ def main():
         try:
             if os.path.exists(PID_FILE):
                 os.remove(PID_FILE)
+        except Exception:
+            pass
+        try:
+            HELD_FLAG.unlink(missing_ok=True)
         except Exception:
             pass
 

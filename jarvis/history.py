@@ -27,6 +27,14 @@ def get_db_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_history_time ON history(timestamp DESC)")
+        # Migrate schema if columns were added later
+        try:
+            cur = conn.execute("PRAGMA table_info(history)")
+            existing_cols = {row["name"] for row in cur.fetchall()}
+            if "duration_sec" not in existing_cols:
+                conn.execute("ALTER TABLE history ADD COLUMN duration_sec REAL DEFAULT 0.0")
+        except Exception:
+            pass
     return conn
 
 
@@ -57,6 +65,10 @@ def save_history_item(
             (time.time(), mode, provider, raw_text, formatted_text, duration_sec),
         )
         return cur.lastrowid
+
+
+# Alias for backward and server compatibility
+add_history_entry = save_history_item
 
 
 def list_history(limit: int = 100, query: str = "", db_path: Optional[Path] = None) -> List[Dict]:
