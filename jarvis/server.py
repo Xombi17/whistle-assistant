@@ -19,6 +19,31 @@ PORT = 8765
 DIST_DIR = Path(__file__).resolve().parent.parent / "web" / "dist"
 
 
+def get_active_audio_device() -> str:
+    """Dynamically query the active PipeWire / WirePlumber audio capture device."""
+    try:
+        res = subprocess.run(["wpctl", "status"], capture_output=True, text=True, timeout=1)
+        in_sources = False
+        for line in res.stdout.splitlines():
+            if "Sources:" in line:
+                in_sources = True
+                continue
+            if in_sources and ("Filters:" in line or "Streams:" in line or "Sinks:" in line):
+                break
+            if in_sources and "*" in line:
+                clean = line.replace("*", "").strip()
+                parts = clean.split(".", 1)
+                name = parts[1].split("[")[0].strip() if len(parts) > 1 else clean
+                return name
+        res = subprocess.run(["pactl", "get-default-source"], capture_output=True, text=True, timeout=1)
+        src = res.stdout.strip()
+        if src:
+            return src
+    except Exception:
+        pass
+    return "PipeWire Default Mic"
+
+
 class JarvisAPIHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(DIST_DIR), **kwargs)
@@ -41,7 +66,7 @@ class JarvisAPIHandler(http.server.SimpleHTTPRequestHandler):
         elif parsed.path == "/api/status":
             status = {
                 "status": "online",
-                "audio_device": "PipeWire default (FIIO JD1)",
+                "audio_device": get_active_audio_device(),
                 "sample_rate": 16000,
                 "engine": "Whistle ASR + Needle 3",
             }

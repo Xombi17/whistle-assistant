@@ -38,6 +38,11 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [systemStatus, setSystemStatus] = useState({
+    audio_device: 'Detecting...',
+    sample_rate: 16000,
+    status: 'online'
+  });
 
   // Audio spectrum visualizer animation
   const canvasRef = useRef(null);
@@ -45,6 +50,9 @@ export default function App() {
   useEffect(() => {
     fetchHistory();
     fetchConfig();
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -112,6 +120,18 @@ export default function App() {
     }
   };
 
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch('/api/status');
+      if (res.ok) {
+        const data = await res.json();
+        setSystemStatus(data);
+      }
+    } catch (e) {
+      console.log('Status check failed');
+    }
+  };
+
   const handleSaveConfig = async (e) => {
     e.preventDefault();
     try {
@@ -176,8 +196,8 @@ export default function App() {
             <span className="bg-[#121a2c] text-cyan-400 text-[10px] font-mono px-2 py-0.5 rounded border border-cyan-500/20">
               16kHz MONO
             </span>
-            <span className="bg-[#121a2c] text-slate-400 text-[10px] font-mono px-2 py-0.5 rounded border border-[#1b253b]">
-              PIPEWIRE: FIIO JD1
+            <span className="bg-[#121a2c] text-slate-300 text-[10px] font-mono px-2 py-0.5 rounded border border-[#1b253b] max-w-[240px] truncate" title={systemStatus.audio_device}>
+              MIC: {systemStatus.audio_device}
             </span>
             <span className="bg-[#121a2c] text-emerald-400 text-[10px] font-mono px-2 py-0.5 rounded border border-emerald-500/20">
               AI: {config.provider.toUpperCase()}
