@@ -35,6 +35,44 @@ _COPULAS = frozenset({"am", "are", "is", "means", "mean", "was", "were"})
 _TERMINAL_PUNCTUATION = frozenset(".!?;:")
 _CLOSING_PUNCTUATION = frozenset('"\'»”’)]}')
 
+# Phonetic technical auto-corrections for common ASR mishearings
+PHONETIC_TECH_REPLACEMENTS = [
+    (re.compile(r"\b(?:crawl|crock|clock|grock)\s+(configuration|config|settings|api|key|model|endpoint|token)\b", re.I), r"Groq \1"),
+    (re.compile(r"\b(?:crawl|crock)\b(?=\s+(?:is|was|has|have|run|tested|added))", re.I), r"Groq"),
+    (re.compile(r"\bdeep\s+sick\b", re.I), r"DeepSeek"),
+    (re.compile(r"\bdeep\s+seek\b", re.I), r"DeepSeek"),
+    (re.compile(r"\bwhisper\s+flow\b", re.I), r"WhisperFlow"),
+    (re.compile(r"\bpipe\s+wire\b", re.I), r"PipeWire"),
+    (re.compile(r"\bwire\s+plumber\b", re.I), r"WirePlumber"),
+    (re.compile(r"\bway\s+land\b", re.I), r"Wayland"),
+    (re.compile(r"\bpie\s+torch\b", re.I), r"PyTorch"),
+]
+
+# Standard Hinglish phonetic normalization (Hindi words in English Latin script)
+HINGLISH_NORMALIZATIONS = [
+    (re.compile(r"\bthik\s+h\b", re.I), r"theek hai"),
+    (re.compile(r"\bthik\s+hai\b", re.I), r"theek hai"),
+    (re.compile(r"\bkro\b", re.I), r"karo"),
+    (re.compile(r"\bkr\s+rha\b", re.I), r"kar raha"),
+    (re.compile(r"\bkr\s+rhi\b", re.I), r"kar rahi"),
+    (re.compile(r"\bkrna\b", re.I), r"karna"),
+    (re.compile(r"\bsmjh\s+gya\b", re.I), r"samajh gaya"),
+    (re.compile(r"\bsmjh\b", re.I), r"samajh"),
+    (re.compile(r"\bacha\b", re.I), r"accha"),
+    (re.compile(r"\bbhiya\b", re.I), r"bhaiya"),
+    (re.compile(r"\bkya\s+h\b", re.I), r"kya hai"),
+    (re.compile(r"\byrr\b", re.I), r"yaar"),
+]
+
+
+def apply_phonetic_and_hinglish_corrections(text: str) -> str:
+    """Applies phonetic tech homophone corrections and standardizes Hinglish spellings."""
+    for pattern, repl in PHONETIC_TECH_REPLACEMENTS:
+        text = pattern.sub(repl, text)
+    for pattern, repl in HINGLISH_NORMALIZATIONS:
+        text = pattern.sub(repl, text)
+    return text
+
 
 def protect_tokens(text: str, custom_terms: Tuple[str, ...] = ()) -> Tuple[str, Dict[str, str]]:
     """Protects technical tokens (URLs, paths, code, emails) from alteration."""
@@ -211,8 +249,11 @@ class WritingPipeline:
         # 4. Resolve verbal self-corrections
         corrected = apply_self_corrections(cleaned)
 
+        # 4b. Apply phonetic auto-corrections and Hinglish normalization
+        autocorrected = apply_phonetic_and_hinglish_corrections(corrected)
+
         # 5. Format spoken punctuation
-        punctuated = replace_spoken_punctuation(corrected)
+        punctuated = replace_spoken_punctuation(autocorrected)
 
         # 6. Format structural commands (new line, new paragraph, lists)
         structured = format_spoken_structure(punctuated)

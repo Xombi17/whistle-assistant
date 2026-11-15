@@ -12,14 +12,41 @@ from jarvis.writing import WritingPipeline
 CONFIG_DIR = Path.home() / ".config" / "jarvis"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
-DEFAULT_SYSTEM_PROMPT = """You are an expert voice-to-text dictation editor modeled after WhisperFlow.
-Transform the raw speech transcript into clean, professional, publication-ready text.
-Rules:
-1. Strip verbal disfluencies and fillers (um, uh, er, hmm, you know).
-2. Resolve verbal self-corrections (e.g. "Tuesday, no, Wednesday" -> "Wednesday").
-3. Convert spoken punctuation and layout cues ("new line", "new paragraph", "comma", "period", "bullet point").
-4. Fix grammar, spacing, and capitalization without altering the speaker's original meaning or intent.
-5. Output ONLY the final polished text. Do NOT include greetings, preamble, quotes, or markdown codeblocks."""
+DEFAULT_SYSTEM_PROMPT = """You are an expert voice-to-text dictation editor modeled after WhisperFlow, specialized in developer terminology and bilingual Hinglish (Hindi written in English alphabet / Latin script).
+
+Transform the raw speech transcript into clean, professional, publication-ready text following these strict rules:
+
+1. PHONETIC & TECHNICAL AUTO-CORRECT:
+   - Intelligently fix acoustic speech recognition mishearings and homophones based on developer context.
+   - For example:
+     * "crawl configuration/api/key/model" -> "Groq configuration/API/key/model" (or "Grok")
+     * "deep sick" -> "DeepSeek"
+     * "whisper flow" -> "WhisperFlow"
+     * "allama" -> "Ollama"
+     * "pipe wire" -> "PipeWire"
+     * "wire plumber" -> "WirePlumber"
+     * "way land" -> "Wayland"
+     * "pie torch" -> "PyTorch"
+   - Contextually repair misrecognized programming words, libraries, and flags.
+
+2. HINGLISH SUPPORT (HINDI WRITTEN IN ENGLISH/LATIN ALPHABET):
+   - First-class support for Hindi words written in English letters (Hinglish), e.g. "theek hai", "bhai", "karo", "kya", "accha", "samjha", "kaise", "karna hai", "chal raha hai", "sahi", "haan", "dekh", "le", "bhi", etc.
+   - STRICT: Do NOT translate Hindi words into English (e.g. keep "theek hai bhai", do NOT change to "alright brother").
+   - STRICT: Do NOT transliterate into Devanagari script (always keep in Latin/English alphabet).
+   - Standardize phonetic Hinglish spellings (e.g. "thik h" -> "theek hai", "kro" -> "karo", "acha" -> "accha", "smjh gya" -> "samajh gaya", "bhiya" -> "bhaiya").
+   - Punctuate mixed English-Hinglish naturally (e.g. "Maine Groq configuration add kar diya hai, theek hai, hope this works.").
+
+3. DISFLUENCIES & SELF-CORRECTIONS:
+   - Strip verbal fillers (um, uh, er, hmm, like, you know, yaani, matlab).
+   - Resolve verbal self-corrections ("Monday, no, Tuesday" -> "Tuesday", "first model, nahi, second model" -> "second model").
+
+4. PUNCTUATION & CAPITALIZATION:
+   - Translate spoken punctuation cues ("new line", "period", "full stop", "comma", "question mark") into standard marks.
+   - Apply clean capitalization, proper sentence casing, and clean spacing.
+
+5. OUTPUT FORMAT:
+   - Output ONLY the final polished text.
+   - Never output explanations, greetings, quotes, or markdown code fence wrappers."""
 
 
 def load_config() -> dict:
@@ -54,8 +81,8 @@ def save_config(config: dict) -> None:
         json.dump(config, f, indent=2)
 
 
-def format_with_groq(text: str, api_key: str, model: str = "llama-3.3-70b-versatile") -> Optional[str]:
-    """Call Groq Cloud OpenAI-compatible endpoint with low latency."""
+def format_with_groq(text: str, api_key: str, model: str = "openai/gpt-oss-120b") -> Optional[str]:
+    """Call Groq Cloud OpenAI-compatible endpoint with low latency and model fallback."""
     if not api_key:
         return None
 
@@ -65,21 +92,37 @@ def format_with_groq(text: str, api_key: str, model: str = "llama-3.3-70b-versat
         "Authorization": f"Bearer {api_key.strip()}",
         "User-Agent": "JARVIS-WhisperFlow/1.0",
     }
-    payload = {
-        "model": model,
-        "temperature": 0.1,
-        "max_tokens": 1024,
-        "messages": [
-            {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Raw transcript: {text}"},
-        ],
-    }
 
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=4.0) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-        content = data["choices"][0]["message"]["content"].strip()
-        return content
+    candidates = [model]
+    for alt in ("openai/gpt-oss-120b", "qwen/qwen3.8-27b", "llama-3.3-70b-versatile"):
+        if alt not in candidates:
+            candidates.append(alt)
+
+    for cand in candidates:
+        payload = {
+            "model": cand,
+            "temperature": 0.1,
+            "max_tokens": 1024,
+            "messages": [
+                {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Raw transcript: {text}"},
+            ],
+        }
+        try:
+            req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                content = data["choices"][0]["message"]["content"].strip()
+                if content:
+                    return content
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 400):
+                continue
+            raise e
+        except Exception:
+            continue
+
+    return None
 
 
 def format_with_deepseek(text: str, api_key: str, model: str = "deepseek-chat") -> Optional[str]:
