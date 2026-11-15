@@ -28,6 +28,8 @@ def load_config() -> dict:
         "provider": os.environ.get("JARVIS_LLM_PROVIDER", "groq"),
         "groq_api_key": os.environ.get("GROQ_API_KEY", ""),
         "groq_model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "deepseek_api_key": os.environ.get("DEEPSEEK_API_KEY", ""),
+        "deepseek_model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
         "ollama_url": os.environ.get("OLLAMA_URL", "http://localhost:11434"),
         "ollama_model": os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b"),
         "xai_api_key": os.environ.get("XAI_API_KEY", os.environ.get("GROK_API_KEY", "")),
@@ -75,6 +77,34 @@ def format_with_groq(text: str, api_key: str, model: str = "llama-3.3-70b-versat
 
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=4.0) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"].strip()
+        return content
+
+
+def format_with_deepseek(text: str, api_key: str, model: str = "deepseek-chat") -> Optional[str]:
+    """Call DeepSeek OpenAI-compatible endpoint."""
+    if not api_key:
+        return None
+
+    url = "https://api.deepseek.com/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key.strip()}",
+        "User-Agent": "JARVIS-WhisperFlow/1.0",
+    }
+    payload = {
+        "model": model,
+        "temperature": 0.1,
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
+            {"role": "user", "content": f"Raw transcript: {text}"},
+        ],
+    }
+
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=5.0) as resp:
         data = json.loads(resp.read().decode("utf-8"))
         content = data["choices"][0]["message"]["content"].strip()
         return content
@@ -140,7 +170,9 @@ def polish_transcript(raw_transcript: str) -> str:
 
     # Try preferred provider
     try:
-        if provider == "groq" and config.get("groq_api_key"):
+        if provider == "deepseek" and config.get("deepseek_api_key"):
+            result = format_with_deepseek(raw_transcript, config["deepseek_api_key"], config.get("deepseek_model", "deepseek-chat"))
+        elif provider == "groq" and config.get("groq_api_key"):
             result = format_with_groq(raw_transcript, config["groq_api_key"], config.get("groq_model", "llama-3.3-70b-versatile"))
         elif provider == "ollama":
             result = format_with_ollama(raw_transcript, config.get("ollama_url", "http://localhost:11434"), config.get("ollama_model", "qwen2.5-coder:7b"))

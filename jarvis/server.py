@@ -115,6 +115,19 @@ class JarvisAPIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"success": True, "action": "triggered"})
             return
 
+        elif parsed.path == "/api/format":
+            try:
+                data = json.loads(body.decode("utf-8"))
+                raw_text = data.get("text", "")
+                from jarvis.formatter import polish_transcript
+                from jarvis.history import add_history_entry
+                formatted = polish_transcript(raw_text)
+                add_history_entry(raw_text=raw_text, formatted_text=formatted, duration_sec=1.5)
+                self.send_json({"formatted": formatted, "raw": raw_text})
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=400)
+            return
+
         self.send_json({"error": "Not Found"}, status=404)
 
     def send_json(self, data, status=200):
