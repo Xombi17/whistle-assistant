@@ -1,12 +1,13 @@
-"""JARVIS unified voice overlay with hold-to-talk release detection, live audio reactivity,
+"""JARVIS unified voice overlay with hold-to-talk release detection, PipeWire default mic capture,
 and seamless mode switching (WhisperFlow Dictation vs Command Assistant)."""
 
 import argparse
+import array
 import configparser
+import fcntl
 import glob
 import os
 import queue
-import select
 import signal
 import struct
 import subprocess
@@ -132,6 +133,24 @@ def compute_rms(pcm_bytes):
         return 0
 
 
+def get_pressed_key_codes():
+    """Query currently pressed keys on physical keyboard devices via EVIOCGKEY."""
+    pressed = set()
+    for dev in ['/dev/input/event2', '/dev/input/event7']:
+        try:
+            fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
+            buf = array.array('B', [0] * 64)
+            EVIOCGKEY = 2 << 30 | (len(buf) << 16) | (ord('E') << 8) | 0x18
+            fcntl.ioctl(fd, EVIOCGKEY, buf, True)
+            for code in range(len(buf) * 8):
+                if (buf[code // 8] >> (code % 8)) & 1:
+                    pressed.add(code)
+            os.close(fd)
+        except Exception:
+            pass
+    return pressed
+
+
 class VoiceOverlay:
     def __init__(self, root, mode='transcribe'):
         self.root = root
@@ -170,7 +189,7 @@ class VoiceOverlay:
 
         self.draw_ui()
         self.root.after(40, self.animate)
-        self.root.after(80, self.check_result)
+        self.root.after(60, self.check_result)
 
     def draw_ui(self):
         self.canvas.delete('all')
@@ -191,7 +210,7 @@ class VoiceOverlay:
         self.canvas.create_text(self.width - 82, 29, text='⇄ Switch (Tab)', fill='#e2e8f0', font=('Sans', 8, 'bold'), tags=btn_tag)
         self.canvas.tag_bind(btn_tag, '<Button-1>', lambda e: self.toggle_mode_live())
 
-        status_msg = 'Holding hotkey… speak now' if self.phase == 'listening' else 'Processing…'
+        status_msg = 'Listening… (hold hotkey or tap to toggle)' if self.phase == 'listening' else 'Processing…'
         self.status = self.canvas.create_text(24, 66, text=status_msg, anchor='w', fill='#b8bfd4', font=('Sans', 11))
 
         self.bars = []
@@ -202,7 +221,7 @@ class VoiceOverlay:
             bar = self.canvas.create_line(px, 105, px, 123, fill=bar_color, width=4, capstyle='round')
             self.bars.append(bar)
 
-        hint = 'Release hotkey to transcribe  ·  Esc: cancel'
+        hint = 'Release hotkey / press Return to finish  ·  Esc: cancel'
         self.footer = self.canvas.create_text(24, 144, text=hint, anchor='w', fill='#777f96', font=('Sans', 9))
 
     def toggle_mode_live(self):
@@ -221,7 +240,6 @@ class VoiceOverlay:
             self.stop_recording_event.set()
 
     def on_mouse_released(self, event):
-        # If user clicked and held anywhere except mode toggle, releasing triggers transcription
         if self.phase == 'listening' and event.y > 45:
             self.stop_recording_event.set()
 
@@ -231,18 +249,17 @@ class VoiceOverlay:
         if self.phase == 'listening':
             is_transcribe = (self.mode == 'transcribe')
             color = '#38bdf8' if is_transcribe else '#c084fc'
-            # Combine wave with real live audio energy
-            boost = min(38.0, self.audio_level * 0.015)
+            boost = min(36.0, self.audio_level * 0.015)
             for i, item in enumerate(self.bars):
                 sin_wave = math.sin(self.tick * 0.24 + i * 0.65)
-                strength = 5 + abs(sin_wave) * (12 + boost)
+                strength = 5 + abs(sin_wave) * (10 + boost)
                 mid = 114
                 self.canvas.coords(item, 26 + i * 14, mid - strength / 2, 26 + i * 14, mid + strength / 2)
                 self.canvas.itemconfigure(item, fill=color)
         elif self.phase == 'processing':
             for i, item in enumerate(self.bars):
                 mid = 114
-                strength = 7 + abs(math.sin(self.tick * 0.35 + i * 0.45)) * 14
+                strength = 6 + abs(math.sin(self.tick * 0.35 + i * 0.45)) * 14
                 self.canvas.coords(item, 26 + i * 14, mid - strength / 2, 26 + i * 14, mid + strength / 2)
                 self.canvas.itemconfigure(item, fill='#818cf8')
         self.root.after(40, self.animate)
@@ -256,22 +273,21 @@ class VoiceOverlay:
 
         if error:
             self.phase = 'error'
-            self.canvas.itemconfigure(self.status, text=f'Error: {error}', fill='#f87171')
+            self.canvas.itemconfigure(self.status, text=f'{error}', fill='#f87171')
             self.root.after(2200, self.root.destroy)
             return
 
         if item_type == 'transcribe':
             text = payload
             self.phase = 'done'
-            display_text = (text[:38] + '…') if len(text) > 40 else text
-            self.canvas.itemconfigure(self.status, text=f'Dictated: "{display_text}"', fill='#38bdf8')
-            self.canvas.itemconfigure(self.footer, text='Injecting text into active window…', fill='#94a3b8')
+            display_text = (text[:36] + '…') if len(text) > 38 else text
+            self.canvas.itemconfigure(self.status, text=f'Transcribed: "{display_text}"', fill='#38bdf8')
+            self.canvas.itemconfigure(self.footer, text='Pasting text and copying to clipboard…', fill='#94a3b8')
 
-            # Hide window after brief visual confirmation, then type into target window
             def finish_dictation():
-                time.sleep(0.3)
+                time.sleep(0.25)
                 self.root.withdraw()
-                self.paste_text(text)
+                paste_text(text)
                 self.root.destroy()
 
             threading.Thread(target=finish_dictation, daemon=True).start()
@@ -291,75 +307,78 @@ class VoiceOverlay:
             subprocess.run(['notify-send', 'JARVIS', f'Launched {app_name}'], check=False)
             self.root.destroy()
 
-    def paste_text(self, text):
-        # 1. Guarantee clipboard persistence first
-        subprocess.run(['wl-copy', '--', text], check=False)
 
-        # 2. Give window manager time to return focus to target application
-        time.sleep(0.08)
+def paste_text(text):
+    """Guarantees clipboard copy on Wayland, and simulates Ctrl+V into active application."""
+    if not text:
+        return
 
-        # 3. Inject text using wtype directly into active text input
-        typed = False
+    # 1. Guarantee clipboard content via wl-copy (both standard and primary clipboard)
+    try:
+        subprocess.run(['wl-copy', '-n', '--', text], check=True, timeout=2)
+        subprocess.run(['wl-copy', '-p', '-n', '--', text], check=False, timeout=2)
+    except Exception:
+        pass
+
+    # 2. Allow window focus to settle back on previous active application
+    time.sleep(0.12)
+
+    # 3. Simulate Ctrl+V into active window using virtual keyboard evemu-event
+    pasted = False
+    for kbd in ['/dev/input/event17', '/dev/input/event2', '/dev/input/event7']:
         try:
-            res = subprocess.run(['wtype', '--', text], check=True, timeout=5)
-            typed = (res.returncode == 0)
-        except Exception:
-            typed = False
-
-        if not typed:
-            subprocess.run(['notify-send', 'WhisperFlow', 'Copied text to clipboard (Press Ctrl+V)'], check=False)
-
-
-def monitor_key_release(stop_event):
-    """Monitors accessible keyboard devices for key release events (Super/Shift/J or space)."""
-    # Keycodes: J=36, LeftMeta=125, RightMeta=126, LeftShift=42, RightShift=54, Space=57
-    watch_keys = {36, 125, 126, 42, 54, 57}
-    fds = []
-    for dev in sorted(glob.glob('/dev/input/event*')):
-        try:
-            fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
-            fds.append(fd)
+            # Emit KEY_LEFTCTRL (29) down, KEY_V (47) down, KEY_V up, KEY_LEFTCTRL up
+            subprocess.run(['evemu-event', kbd, '--sync', '--type', 'EV_KEY', '--code', 'KEY_LEFTCTRL', '--value', '1'], check=True, timeout=1)
+            subprocess.run(['evemu-event', kbd, '--sync', '--type', 'EV_KEY', '--code', 'KEY_V', '--value', '1'], check=True, timeout=1)
+            time.sleep(0.02)
+            subprocess.run(['evemu-event', kbd, '--sync', '--type', 'EV_KEY', '--code', 'KEY_V', '--value', '0'], check=True, timeout=1)
+            subprocess.run(['evemu-event', kbd, '--sync', '--type', 'EV_KEY', '--code', 'KEY_LEFTCTRL', '--value', '0'], check=True, timeout=1)
+            pasted = True
+            break
         except Exception:
             continue
 
-    if not fds:
+    if pasted:
+        subprocess.run(['notify-send', 'WhisperFlow', f'Inserted: {text[:45]}'], check=False)
+    else:
+        subprocess.run(['notify-send', 'WhisperFlow', f'Copied: "{text[:45]}" (Press Ctrl+V to paste)'], check=False)
+
+
+def monitor_key_release(stop_event):
+    """Monitors hotkey modifiers (Super/Shift) for release, respecting hold-to-talk."""
+    # Key codes: LeftMeta=125, RightMeta=126, LeftShift=42, RightShift=54, J=36
+    initial_modifiers = {42, 54, 125, 126}
+
+    # Check which modifier keys were already held down when triggered
+    initial_pressed = get_pressed_key_codes() & initial_modifiers
+    was_holding = bool(initial_pressed)
+
+    # Enforce minimum speaking time (0.5s) before release can trigger stop
+    start_time = time.time()
+    time.sleep(0.5)
+
+    if not was_holding:
+        # User tapped shortcut quickly; wait for second tap (SIGUSR1) or Return/Space in UI
         return
 
-    # Give small grace period (0.25s) so initial key-press down events settle
-    time.sleep(0.25)
-
-    try:
-        while not stop_event.is_set():
-            r, _, _ = select.select(fds, [], [], 0.05)
-            for fd in r:
-                while True:
-                    try:
-                        data = os.read(fd, 24)
-                        if not data or len(data) < 24:
-                            break
-                        _, _, ev_type, code, value = struct.unpack('qqHHi', data)
-                        # ev_type 1 == EV_KEY; value 0 == Key Release
-                        if ev_type == 1 and value == 0 and code in watch_keys:
-                            stop_event.set()
-                            return
-                    except (BlockingIOError, OSError):
-                        break
-    finally:
-        for fd in fds:
-            try:
-                os.close(fd)
-            except Exception:
-                pass
+    while not stop_event.is_set():
+        current_pressed = get_pressed_key_codes()
+        # If all initially held modifiers have been released, user let go of hotkey
+        if not (current_pressed & initial_modifiers):
+            stop_event.set()
+            return
+        time.sleep(0.04)
 
 
 def audio_recorder(overlay, stop_event, pcm_chunks):
-    """Captures 16 kHz raw audio stream and computes real-time volume RMS for GUI animation."""
-    cmd = ['arecord', '-q', '-f', 'S16_LE', '-r', '16000', '-c', '1', '-t', 'raw']
+    """Captures 16 kHz audio from system default microphone (PipeWire default source)."""
+    # Using arecord -D default routes cleanly to active PipeWire mic (e.g. USB headset/FIIO)
+    cmd = ['arecord', '-D', 'default', '-q', '-f', 'S16_LE', '-r', '16000', '-c', '1', '-t', 'raw']
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     chunk_size = 1600  # 0.05 seconds of audio per read
     start_time = time.time()
-    max_duration = 30.0  # safety timeout
+    max_duration = 35.0
 
     try:
         while not stop_event.is_set():
@@ -386,20 +405,20 @@ def run_pipeline(overlay):
         pcm_chunks = []
         stop_event = overlay.stop_recording_event
 
-        # Start key-release monitor in background thread
+        # Start key-release monitor
         key_thread = threading.Thread(target=monitor_key_release, args=(stop_event,), daemon=True)
         key_thread.start()
 
-        # Record until key release or stop trigger
+        # Capture audio from default microphone
         audio_recorder(overlay, stop_event, pcm_chunks)
 
         overlay.phase = 'processing'
         overlay.canvas.itemconfigure(overlay.status, text='Transcribing with Whistle…')
 
         all_pcm = b''.join(pcm_chunks)
-        # Require at least 0.25 seconds of audio
-        if len(all_pcm) < 8000:
-            raise ValueError('Recording too short, please speak clearly.')
+        # Require at least 0.3 seconds of audio data
+        if len(all_pcm) < 9600:
+            raise ValueError('Recording too short — hold key while speaking.')
 
         wav_bytes = pcm_to_wav(all_pcm)
 
@@ -417,7 +436,7 @@ def run_pipeline(overlay):
                 pass
 
         if not transcript:
-            raise ValueError('No speech detected')
+            raise ValueError('No speech detected. Please check microphone.')
 
         if overlay.mode == 'transcribe':
             overlay.result_queue.put(('transcribe', transcript, None))
@@ -438,14 +457,12 @@ def run_pipeline(overlay):
 
 
 def signal_existing_process():
-    """If another JARVIS instance is running, signal it to stop recording and exit this instance."""
+    """If another instance is active, send SIGUSR1 to stop recording and trigger transcription."""
     if os.path.exists(PID_FILE):
         try:
             with open(PID_FILE, 'r') as f:
                 pid = int(f.read().strip())
-            # Check if PID is alive
             os.kill(pid, 0)
-            # Send SIGUSR1 to trigger immediate transcription on the running instance
             os.kill(pid, signal.SIGUSR1)
             return True
         except Exception:
@@ -474,11 +491,9 @@ def main():
         subprocess.run(['notify-send', 'JARVIS Mode', f'Active mode: {mode}'], check=False)
         return 0
 
-    # If already running, signal running instance to stop & transcribe (toggle behavior)
     if signal_existing_process():
         return 0
 
-    # Write current PID
     my_pid = os.getpid()
     with open(PID_FILE, 'w') as f:
         f.write(str(my_pid))
@@ -487,7 +502,6 @@ def main():
     root = tk.Tk()
     overlay = VoiceOverlay(root, mode=active_mode)
 
-    # Listen for SIGUSR1 to stop recording if user presses hotkey again
     def handle_sigusr1(signum, frame):
         overlay.stop_recording_event.set()
 
